@@ -23,36 +23,7 @@ export class AppIndex extends LitElement {
     :host {
       display: flex;
       flex-direction: column;
-    }
-
-    header {
-      display: flex;
-      align-items: center;
-      height: 53px;
-      padding: 0 1rem;
-      background-color: #24292e;
-    }
-
-    header nav {
-      display: flex;
-      flex: 1;
-      align-self: stretch;
-    }
-
-    header nav a {
-      display: flex;
-      align-items: center;
-      color: #fff;
-      font-weight: 600;
-      text-decoration: none;
-    }
-
-    header nav a:not(:last-child) {
-      margin-right: 1rem;
-    }
-
-    header nav a:hover {
-      color: #bbb;
+      height: 100%;
     }
 
     main,
@@ -60,6 +31,30 @@ export class AppIndex extends LitElement {
       display: flex;
       flex: 1;
       flex-direction: column;
+    }
+
+    .pwa-buttons {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      z-index: 1000;
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .pwa-buttons button {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 8px;
+      background: #007bff;
+      color: white;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+
+    .pwa-buttons button:hover {
+      background: #0056b3;
     }
 
     footer {
@@ -75,12 +70,7 @@ export class AppIndex extends LitElement {
 
   render() {
     return html`
-      <header>
-        <nav>
-          <a href="${urlForName('home')}">Home</a>
-          <a href="${urlForName('about')}">About</a>
-        </nav>
-
+      <div class="pwa-buttons">
         <pwa-install-button>
           <button>Install app</button>
         </pwa-install-button>
@@ -88,7 +78,7 @@ export class AppIndex extends LitElement {
         <pwa-update-available>
           <button>Update app</button>
         </pwa-update-available>
-      </header>
+      </div>
 
       <!-- The main content is added / removed dynamically by the router -->
       <main role="main"></main>
