@@ -17,11 +17,19 @@ export const routes: Route[] = [
     },
   },
   {
-    path: '/about',
-    name: 'about',
-    component: 'page-about',
+    path: '/user',
+    name: 'user',
+    component: 'page-user',
     action: async () => {
-      await import('../pages/page-about.js');
+      await import('../pages/page-user.js');
+    },
+  },
+  {
+    path: '/chat',
+    name: 'chat',
+    component: 'page-chat',
+    action: async () => {
+      await import('../pages/page-chat.js');
     },
   },
   {

@@ -14,7 +14,7 @@ import { black, blue, bgWhite } from 'picocolors';
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const DIST_PATH = 'server/dist/';
-const GENERATE_SERVICE_WORKER = false;
+const GENERATE_SERVICE_WORKER = true;
 
 const absoluteBaseUrl =
   NODE_ENV === 'production'

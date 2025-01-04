@@ -5,17 +5,24 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import { Router } from '@vaadin/router';
 import { html, css } from 'lit';
-import { customElement } from 'lit/decorators.js';
+import { customElement, query } from 'lit/decorators.js';
 
+import { sendTextMessage, sendImageMessage } from '../components/network.js';
 import config from '../config.js';
 import { PageElement } from '../helpers/page-element.js';
 
 @customElement('page-home')
 export class PageHome extends PageElement {
+  @query('#text-input') textInput?: HTMLTextAreaElement;
+  @query('#image-upload') imageInput?: HTMLInputElement;
+  @query('#speech-button') speechButton?: HTMLButtonElement;
+
+  // private mediaRecorder: MediaRecorder | null = null;
+  // private audioChunks: Blob[] = [];
+
   static styles = css`
-
-
     /* Safe area support for notched devices */
     @supports (padding: max(0px)) {
       .toolbar {
@@ -57,7 +64,8 @@ export class PageHome extends PageElement {
       .input-section {
         padding: clamp(1.2rem, 4vw, 1.8rem);
       }
-    }    :host {
+    }
+    :host {
       position: relative;
       display: block;
       box-sizing: border-box;
@@ -211,6 +219,7 @@ export class PageHome extends PageElement {
                 id="image-upload"
                 accept="image/*"
                 style="display: none;"
+                @change=${this.handleImageUpload}
               />
               Click or drag and drop to upload an image
             </label>
@@ -219,17 +228,11 @@ export class PageHome extends PageElement {
           <div class="input-section">
             <h2>✏️ Text Input</h2>
             <textarea
+              id="text-input"
               placeholder="Type your message here..."
               aria-label="Text input"
             ></textarea>
-          </div>
-
-          <div class="input-section">
-            <h2>🎤 Speech Input</h2>
-            <div class="speech-input">
-              <button id="speech-button">Start Recording</button>
-              <span id="speech-status">Click to start speaking</span>
-            </div>
+            <button @click=${this.handleTextSubmit}>Send</button>
           </div>
         </div>
       </section>
@@ -262,4 +265,113 @@ export class PageHome extends PageElement {
       description: config.appDescription,
     };
   }
+
+  async handleTextSubmit() {
+    if (this.textInput?.value) {
+      try {
+        const response = await sendTextMessage(this.textInput.value);
+        const prompt = this.textInput.value;
+        this.textInput.value = ''; // Clear input
+
+        // Store data in sessionStorage for the chat page
+        sessionStorage.setItem(
+          'chatData',
+          JSON.stringify({
+            userPrompt: prompt,
+            aiResponse: response,
+          })
+        );
+
+        // Navigate to chat page
+        Router.go('/chat');
+      } catch (error) {
+        console.error('Error sending text:', error);
+      }
+    }
+  }
+
+  async handleImageUpload(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files[0]) {
+      const file = input.files[0];
+      const reader = new FileReader();
+
+      reader.onload = async (e) => {
+        if (e.target?.result) {
+          const base64Image = (e.target.result as string).split(',')[1];
+          try {
+            const response = await sendImageMessage(
+              'Describe this picture',
+              base64Image,
+              file.type
+            );
+
+            // Store data in sessionStorage for the chat page
+            sessionStorage.setItem(
+              'chatData',
+              JSON.stringify({
+                userPrompt: 'Image uploaded: ' + file.name,
+                aiResponse: response,
+              })
+            );
+
+            // Navigate to chat page
+            Router.go('/chat');
+          } catch (error) {
+            console.error('Error sending image:', error);
+          }
+        }
+      };
+
+      reader.readAsDataURL(file);
+    }
+  }
+
+  // async toggleSpeechRecording() {
+  //   if (!this.mediaRecorder) {
+  //     try {
+  //       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  //       this.mediaRecorder = new MediaRecorder(stream);
+  //       this.audioChunks = [];
+
+  //       this.mediaRecorder.ondataavailable = (event) => {
+  //         this.audioChunks.push(event.data);
+  //       };
+
+  //       this.mediaRecorder.onstop = async () => {
+  //         const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
+  //         const reader = new FileReader();
+
+  //         reader.onload = async (e) => {
+  //           if (e.target?.result) {
+  //             const base64Audio = (e.target.result as string).split(',')[1];
+  //             try {
+  //               // Note: You might need to add a sendAudioMessage function to network.ts
+  //               // For now, we'll use sendTextMessage as a placeholder
+  //               const response = await sendTextMessage("Audio recording submitted");
+  //               console.log('Response:', response);
+  //             } catch (error) {
+  //               console.error('Error sending audio:', error);
+  //             }
+  //           }
+  //         };
+
+  //         reader.readAsDataURL(audioBlob);
+  //       };
+
+  //       this.mediaRecorder.start();
+  //       if (this.speechButton) {
+  //         this.speechButton.textContent = 'Stop Recording';
+  //       }
+  //     } catch (error) {
+  //       console.error('Error accessing microphone:', error);
+  //     }
+  //   } else {
+  //     this.mediaRecorder.stop();
+  //     this.mediaRecorder = null;
+  //     if (this.speechButton) {
+  //       this.speechButton.textContent = 'Start Recording';
+  //     }
+  //   }
+  // }
 }
