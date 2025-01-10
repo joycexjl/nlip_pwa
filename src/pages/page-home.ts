@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import { SignalWatcher } from '@lit-labs/signals';
 import { Router } from '@vaadin/router';
 import { html, css } from 'lit';
 import { customElement, query } from 'lit/decorators.js';
@@ -14,157 +15,94 @@ import config from '../config.js';
 import { PageElement } from '../helpers/page-element.js';
 
 @customElement('page-home')
-export class PageHome extends PageElement {
+export class PageHome extends SignalWatcher(PageElement) {
   @query('#text-input') textInput?: HTMLTextAreaElement;
-  @query('#image-upload') imageInput?: HTMLInputElement;
-  @query('#speech-button') speechButton?: HTMLButtonElement;
-
-  // private mediaRecorder: MediaRecorder | null = null;
-  // private audioChunks: Blob[] = [];
+  @query('#image-input') imageInput?: HTMLInputElement;
+  @query('#image-prompt') imagePrompt?: HTMLTextAreaElement;
 
   static styles = css`
-    /* Safe area support for notched devices */
-    @supports (padding: max(0px)) {
-      .toolbar {
-        height: calc(60px + env(safe-area-inset-bottom));
-        padding-bottom: max(env(safe-area-inset-bottom), 0px);
-      }
-    }
-
-    @media (hover: hover) {
-      .input-section:hover {
-        transform: translateY(-2px);
-      }
-    }
-
-    /* Landscape orientation adjustments */
-    @media screen and (max-height: 600px) and (orientation: landscape) {
-      .input-container {
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      }
-    }
-
-    /* Desktop layout */
-    @media screen and (min-width: 768px) {
-      .input-container {
-        grid-template-columns: 1fr;
-      }
-
-      .input-section {
-        max-width: 100%;
-      }
-    }
-
-    /* Touch device optimizations */
-    @media (hover: none) {
-      button {
-        padding: clamp(0.8rem, 2vw, 1rem) clamp(1.5rem, 4vw, 2rem);
-      }
-
-      .input-section {
-        padding: clamp(1.2rem, 4vw, 1.8rem);
-      }
-    }
     :host {
-      position: relative;
       display: block;
-      box-sizing: border-box;
       min-height: 100vh;
-      padding-bottom: 60px; /* Space for toolbar */
+      padding-bottom: 60px;
       background: #f5f5f7;
     }
 
-    section {
-      box-sizing: border-box;
+    .container {
       max-width: min(90vw, 800px);
       margin: 0 auto;
       padding: clamp(1rem, 5vw, 2rem);
     }
 
-    .input-container {
-      display: grid;
-      gap: clamp(1rem, 3vw, 2rem);
-      margin-top: clamp(1rem, 3vw, 2rem);
+    h1 {
+      margin-bottom: clamp(1rem, 4vw, 2rem);
+      color: #333;
+      font-size: clamp(1.5rem, 4vw, 2rem);
+      text-align: center;
     }
 
     .input-section {
+      margin-bottom: 2rem;
       padding: clamp(1rem, 3vw, 1.5rem);
       border-radius: 12px;
-      background: #fff;
+      background: white;
       box-shadow: 0 2px 8px rgb(0 0 0 / 10%);
-      transition: transform 0.2s;
-    }
-
-    h1 {
-      margin-bottom: clamp(0.5rem, 3vw, 1rem);
-      color: #333;
-      font-size: clamp(1.5rem, 4vw, 2rem);
-      line-height: 1.2;
-      text-align: center;
     }
 
     h2 {
       margin: 0 0 1rem;
       color: #444;
-      font-size: clamp(1rem, 3vw, 1.2rem);
+      font-size: clamp(1.2rem, 3vw, 1.4rem);
     }
 
-    .image-upload {
-      display: block;
-      padding: clamp(1rem, 3vw, 2rem);
-      border: 2px dashed #ccc;
-      border-radius: 8px;
-      font-size: clamp(0.875rem, 2.5vw, 1rem);
-      text-align: center;
-      cursor: pointer;
-    }
-
-    .image-upload:hover {
-      border-color: #666;
-    }
-
-    textarea {
-      box-sizing: border-box;
+    .text-area {
       width: 100%;
-      min-height: clamp(80px, 20vh, 100px);
+      min-height: 100px;
+      margin-bottom: 1rem;
       padding: 0.8rem;
-      border: 1px solid #ccc;
+      border: 1px solid #ddd;
       border-radius: 8px;
-      font-size: clamp(0.875rem, 2.5vw, 1rem);
+      font-size: 1rem;
       resize: vertical;
     }
 
-    .speech-input {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1rem;
-      align-items: center;
+    .file-input-wrapper {
+      margin-bottom: 1rem;
+    }
+
+    .file-input {
+      display: block;
+      width: 100%;
+      padding: 0.8rem;
+      border: 2px dashed #ddd;
+      border-radius: 8px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .file-input:hover {
+      border-color: #aaa;
     }
 
     button {
-      padding: clamp(0.6rem, 2vw, 0.8rem) clamp(1rem, 3vw, 1.5rem);
+      display: block;
+      width: 100%;
+      padding: 1rem;
       border: none;
       border-radius: 8px;
       background: #007bff;
       color: white;
       font-weight: 500;
-      font-size: clamp(0.875rem, 2.5vw, 1rem);
+      font-size: 1rem;
       cursor: pointer;
       transition: background-color 0.2s;
-      touch-action: manipulation;
     }
 
     button:hover {
       background: #0056b3;
     }
 
-    #speech-status {
-      color: #666;
-      font-style: italic;
-      font-size: clamp(0.875rem, 2.5vw, 1rem);
-    }
-
-    /* Bottom Toolbar Styles */
     .toolbar {
       position: fixed;
       right: 0;
@@ -203,39 +141,55 @@ export class PageHome extends PageElement {
       height: 24px;
       margin-bottom: 4px;
     }
+
+    @media (hover: hover) {
+      .input-section:hover {
+        transform: translateY(-2px);
+      }
+    }
+
+    @supports (padding: max(0px)) {
+      .toolbar {
+        height: calc(60px + env(safe-area-inset-bottom));
+        padding-bottom: max(env(safe-area-inset-bottom), 0px);
+      }
+    }
   `;
 
   render() {
     return html`
-      <section>
+      <div class="container">
         <h1>Natural Language Interaction Protocol</h1>
 
-        <div class="input-container">
-          <div class="input-section">
-            <h2>📸 Image Input</h2>
-            <label for="image-upload" class="image-upload">
-              <input
-                type="file"
-                id="image-upload"
-                accept="image/*"
-                style="display: none;"
-                @change=${this.handleImageUpload}
-              />
-              Click or drag and drop to upload an image
-            </label>
-          </div>
-
-          <div class="input-section">
-            <h2>✏️ Text Input</h2>
-            <textarea
-              id="text-input"
-              placeholder="Type your message here..."
-              aria-label="Text input"
-            ></textarea>
-            <button @click=${this.handleTextSubmit}>Send</button>
-          </div>
+        <div class="input-section">
+          <h2>Text Only Query</h2>
+          <textarea
+            id="text-input"
+            class="text-area"
+            placeholder="Enter your text query here..."
+          ></textarea>
+          <button @click=${this.handleTextSubmit}>Send Text Query</button>
         </div>
-      </section>
+
+        <div class="input-section">
+          <h2>Image with Text Query</h2>
+          <div class="file-input-wrapper">
+            <input
+              type="file"
+              id="image-input"
+              accept="image/jpeg,image/png,image/gif,image/bmp"
+              class="file-input"
+              @change=${this.handleImageSelect}
+            />
+          </div>
+          <textarea
+            id="image-prompt"
+            class="text-area"
+            placeholder="Enter your question about the image..."
+          ></textarea>
+          <button @click=${this.handleImageSubmit}>Send Image Query</button>
+        </div>
+      </div>
 
       <nav class="toolbar">
         <a href="/" class="active">
@@ -256,14 +210,6 @@ export class PageHome extends PageElement {
         </a>
       </nav>
     `;
-  }
-
-  meta() {
-    return {
-      title: config.appName,
-      titleTemplate: null,
-      description: config.appDescription,
-    };
   }
 
   async handleTextSubmit() {
@@ -290,88 +236,71 @@ export class PageHome extends PageElement {
     }
   }
 
-  async handleImageUpload(event: Event) {
+  handleImageSelect(event: Event) {
     const input = event.target as HTMLInputElement;
     if (input.files && input.files[0]) {
       const file = input.files[0];
-      const reader = new FileReader();
-
-      reader.onload = async (e) => {
-        if (e.target?.result) {
-          const base64Image = (e.target.result as string).split(',')[1];
-          try {
-            const response = await sendImageMessage(
-              'Describe this picture',
-              base64Image,
-              file.type
-            );
-
-            // Store data in sessionStorage for the chat page
-            sessionStorage.setItem(
-              'chatData',
-              JSON.stringify({
-                userPrompt: 'Image uploaded: ' + file.name,
-                aiResponse: response,
-              })
-            );
-
-            // Navigate to chat page
-            Router.go('/chat');
-          } catch (error) {
-            console.error('Error sending image:', error);
-          }
-        }
-      };
-
-      reader.readAsDataURL(file);
+      if (
+        !['image/jpeg', 'image/png', 'image/gif', 'image/bmp'].includes(
+          file.type
+        )
+      ) {
+        alert('Please select a valid image file (JPEG, PNG, GIF, or BMP)');
+        input.value = '';
+      }
     }
   }
 
-  // async toggleSpeechRecording() {
-  //   if (!this.mediaRecorder) {
-  //     try {
-  //       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  //       this.mediaRecorder = new MediaRecorder(stream);
-  //       this.audioChunks = [];
+  async handleImageSubmit() {
+    if (!this.imageInput?.files?.length) {
+      alert('Please select an image first');
+      return;
+    }
 
-  //       this.mediaRecorder.ondataavailable = (event) => {
-  //         this.audioChunks.push(event.data);
-  //       };
+    const file = this.imageInput.files[0];
+    const prompt = this.imagePrompt?.value || 'What do you see in this image?';
+    const reader = new FileReader();
 
-  //       this.mediaRecorder.onstop = async () => {
-  //         const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
-  //         const reader = new FileReader();
+    reader.onload = async (e) => {
+      if (e.target?.result) {
+        const base64Image = (e.target.result as string).split(',')[1];
+        try {
+          const response = await sendImageMessage(
+            prompt,
+            base64Image,
+            file.type
+          );
 
-  //         reader.onload = async (e) => {
-  //           if (e.target?.result) {
-  //             const base64Audio = (e.target.result as string).split(',')[1];
-  //             try {
-  //               // Note: You might need to add a sendAudioMessage function to network.ts
-  //               // For now, we'll use sendTextMessage as a placeholder
-  //               const response = await sendTextMessage("Audio recording submitted");
-  //               console.log('Response:', response);
-  //             } catch (error) {
-  //               console.error('Error sending audio:', error);
-  //             }
-  //           }
-  //         };
+          // Store data in sessionStorage for the chat page
+          sessionStorage.setItem(
+            'chatData',
+            JSON.stringify({
+              userPrompt: `Image uploaded with prompt: ${prompt}`,
+              aiResponse: response,
+            })
+          );
 
-  //         reader.readAsDataURL(audioBlob);
-  //       };
+          // Clear inputs
+          this.imageInput!.value = '';
+          if (this.imagePrompt) this.imagePrompt.value = '';
 
-  //       this.mediaRecorder.start();
-  //       if (this.speechButton) {
-  //         this.speechButton.textContent = 'Stop Recording';
-  //       }
-  //     } catch (error) {
-  //       console.error('Error accessing microphone:', error);
-  //     }
-  //   } else {
-  //     this.mediaRecorder.stop();
-  //     this.mediaRecorder = null;
-  //     if (this.speechButton) {
-  //       this.speechButton.textContent = 'Start Recording';
-  //     }
-  //   }
-  // }
+          // Navigate to chat page
+          Router.go('/chat');
+        } catch (error) {
+          console.error('Error sending image:', error);
+          alert('Error processing image. Please try again.');
+        }
+      }
+    };
+
+    reader.readAsDataURL(file);
+  }
+
+  meta() {
+    return {
+      title: config.appName,
+      titleTemplate: null,
+      description: config.appDescription,
+    };
+  }
 }

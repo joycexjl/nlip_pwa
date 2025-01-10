@@ -2,37 +2,45 @@
  * Network utilities for communicating with the backend server
  */
 
-const BASE_URL = 'https://druid.eecs.umich.edu';
+import { envSignal } from '../context/app-context.js';
+
+const BASE_URL = envSignal;
 const API_ENDPOINTS = {
   auth: `${BASE_URL}/auth`,
   nlip: `${BASE_URL}/nlip`,
   upload: `${BASE_URL}/upload`,
 };
 
-interface Message {
-  format: 'text' | 'binary';
-  subformat: string;
-  content: string;
-}
+type Format =
+  | 'text'
+  | 'binary'
+  | 'authentication'
+  | 'structured'
+  | 'location'
+  | 'generic';
+type Subformat = 'english' | 'jpeg' | 'jpg' | 'png' | 'gif' | 'bmp';
 
-interface NLIPRequest {
-  format: 'text';
-  subformat: string;
+interface Message {
+  format: Format;
+  subformat: Subformat;
   content: string;
   submessages?: Message[];
 }
 
 interface APIResponse {
-  response: string;
-  // Add other response fields if needed
+  format: Format;
+  subformat: Subformat;
+  content: string;
 }
 
 /**
  * Get authentication URL for a specific provider
  */
-export async function getAuthUrl(): Promise<string> {
+export async function getAuthUrl(
+  provider: 'google' | 'custom' = 'google'
+): Promise<string> {
   try {
-    const response = await fetch(API_ENDPOINTS.auth);
+    const response = await fetch(`${API_ENDPOINTS.auth}/${provider}`);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -48,7 +56,7 @@ export async function getAuthUrl(): Promise<string> {
  * Send a text message to the NLIP endpoint
  */
 export async function sendTextMessage(text: string): Promise<string> {
-  const request: NLIPRequest = {
+  const request: Message = {
     format: 'text',
     subformat: 'english',
     content: text,
@@ -68,7 +76,7 @@ export async function sendTextMessage(text: string): Promise<string> {
     }
 
     const data: APIResponse = await response.json();
-    return data.response;
+    return data.content;
   } catch (error) {
     console.error('Error sending text message:', error);
     throw error;
@@ -83,13 +91,19 @@ export async function sendImageMessage(
   base64Image: string,
   mimeType: string
 ): Promise<string> {
-  // Extract the image format from the MIME type (e.g., 'image/jpeg' -> 'jpeg')
-  const imageFormat = mimeType.split('/')[1];
+  const imageFormat = mimeType.split('/')[1].toLowerCase() as Subformat;
 
-  const request: NLIPRequest = {
+  // Validate image format
+  if (!['jpeg', 'jpg', 'png', 'gif', 'bmp'].includes(imageFormat)) {
+    throw new Error(
+      'Unsupported image format. Please use JPEG, PNG, GIF, or BMP.'
+    );
+  }
+
+  const request: Message = {
     format: 'text',
     subformat: 'english',
-    content: prompt || 'Describe this picture',
+    content: prompt || 'What do you see in this image?',
     submessages: [
       {
         format: 'binary',
@@ -113,7 +127,7 @@ export async function sendImageMessage(
     }
 
     const data: APIResponse = await response.json();
-    return data.response;
+    return data.content;
   } catch (error) {
     console.error('Error sending image message:', error);
     throw error;
@@ -138,7 +152,7 @@ export async function uploadFile(file: File): Promise<string> {
     }
 
     const data = await response.json();
-    return data.url; // Assuming the server returns the URL of the uploaded file
+    return data.url;
   } catch (error) {
     console.error('Error uploading file:', error);
     throw error;

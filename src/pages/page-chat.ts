@@ -5,13 +5,14 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import { SignalWatcher } from '@lit-labs/signals';
 import { html, css } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 
 import { PageElement } from '../helpers/page-element.js';
 
 @customElement('page-chat')
-export class PageChat extends PageElement {
+export class PageChat extends SignalWatcher(PageElement) {
   @property({ type: String }) userPrompt = '';
   @property({ type: String }) aiResponse = '';
 
@@ -36,7 +37,7 @@ export class PageChat extends PageElement {
         height: calc(60px + env(safe-area-inset-bottom));
         padding-bottom: max(env(safe-area-inset-bottom), 0px);
       }
-    }    :host {
+    }        :host {
       display: block;
       min-height: 100vh;
       padding-bottom: 60px;

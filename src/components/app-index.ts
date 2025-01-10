@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+import { SignalWatcher } from '@lit-labs/signals';
 import { LitElement, html, css } from 'lit';
 import { customElement, query } from 'lit/decorators.js';
 
@@ -15,7 +16,7 @@ import 'pwa-helper-components/pwa-install-button.js';
 import 'pwa-helper-components/pwa-update-available.js';
 
 @customElement('app-index')
-export class AppIndex extends LitElement {
+export class AppIndex extends SignalWatcher(LitElement) {
   @query('main')
   private main!: HTMLElement;
 
