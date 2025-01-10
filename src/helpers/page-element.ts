@@ -6,7 +6,7 @@
  */
 
 import type { RouterLocation } from '@vaadin/router';
-import { LitElement } from 'lit';
+import { LitElement, css } from 'lit';
 import type { PropertyValues } from 'lit';
 import { state } from 'lit/decorators.js';
 
@@ -15,6 +15,19 @@ import { updateMeta } from './html-meta-manager/index.js';
 import type { MetaOptions } from './html-meta-manager/index.js';
 
 export class PageElement extends LitElement {
+  static styles = css`
+    :host {
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    * {
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+  `;
+
   @state()
   protected location?: RouterLocation;
 

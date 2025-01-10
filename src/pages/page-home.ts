@@ -21,86 +21,176 @@ export class PageHome extends SignalWatcher(PageElement) {
   @query('#image-prompt') imagePrompt?: HTMLTextAreaElement;
 
   static styles = css`
-    :host {
+
+
+    /* Notched device support */
+    @supports (padding: max(0px)) {
+      .toolbar {
+        height: calc(60px + env(safe-area-inset-bottom));
+        padding-bottom: max(env(safe-area-inset-bottom), 0px);
+      }
+    }
+
+    /* Landscape mode optimizations */
+    @media screen and (orientation: landscape) and (max-height: 500px) {
+      .container {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: clamp(1rem, 3vw, 2rem);
+        padding-bottom: 80px;
+      }
+
+      .input-section {
+        margin-bottom: 0;
+      }
+
+      h1 {
+        grid-column: 1 / -1;
+      }
+
+      .text-area {
+        min-height: 60px;
+        max-height: 30vh;
+      }
+    }
+
+    /* Small screen optimizations */
+    @media screen and (max-width: 360px) {
+      .container {
+        padding: max(0.5rem, env(safe-area-inset-top))
+          max(0.5rem, env(safe-area-inset-right)) 0
+          max(0.5rem, env(safe-area-inset-left));
+      }
+
+      .input-section {
+        padding: 0.75rem;
+      }
+
+      .text-area,
+      .file-input {
+        font-size: 14px;
+      }
+
+      button {
+        padding: 0.75rem;
+      }
+    }    :host {
       display: block;
+      box-sizing: border-box;
       min-height: 100vh;
-      padding-bottom: 60px;
+      padding-bottom: calc(60px + env(safe-area-inset-bottom));
       background: #f5f5f7;
+    }
+
+    *,
+    *:before,
+    *:after {
+      box-sizing: inherit;
     }
 
     .container {
       max-width: min(90vw, 800px);
       margin: 0 auto;
-      padding: clamp(1rem, 5vw, 2rem);
+      padding: max(1rem, env(safe-area-inset-top))
+        max(1rem, env(safe-area-inset-right)) 0
+        max(1rem, env(safe-area-inset-left));
     }
 
     h1 {
-      margin-bottom: clamp(1rem, 4vw, 2rem);
+      margin: 0 0 clamp(1rem, 4vw, 2rem);
       color: #333;
-      font-size: clamp(1.5rem, 4vw, 2rem);
+      font-size: clamp(1.25rem, 5vw, 2rem);
+      line-height: 1.2;
       text-align: center;
+      word-wrap: break-word;
     }
 
     .input-section {
-      margin-bottom: 2rem;
-      padding: clamp(1rem, 3vw, 1.5rem);
+      margin-bottom: clamp(1rem, 4vw, 2rem);
+      padding: clamp(0.75rem, 3vw, 1.5rem);
       border-radius: 12px;
       background: white;
       box-shadow: 0 2px 8px rgb(0 0 0 / 10%);
     }
 
     h2 {
-      margin: 0 0 1rem;
+      margin: 0 0 clamp(0.5rem, 2vw, 1rem);
       color: #444;
-      font-size: clamp(1.2rem, 3vw, 1.4rem);
+      font-size: clamp(1rem, 4vw, 1.4rem);
+      line-height: 1.3;
+      word-wrap: break-word;
     }
 
     .text-area {
       width: 100%;
-      min-height: 100px;
-      margin-bottom: 1rem;
-      padding: 0.8rem;
+      min-height: clamp(80px, 20vh, 150px);
+      max-height: 40vh;
+      margin-bottom: clamp(0.5rem, 2vw, 1rem);
+      padding: clamp(0.5rem, 2vw, 0.8rem);
       border: 1px solid #ddd;
       border-radius: 8px;
-      font-size: 1rem;
+      background: #fff;
+      color: #333;
+      font-size: clamp(14px, 3.5vw, 16px);
+      font-family: inherit;
+      line-height: 1.5;
       resize: vertical;
+      appearance: none;
+    }
+
+    .text-area:focus {
+      border-color: #007bff;
+      box-shadow: 0 0 0 2px rgb(0 123 255 / 25%);
+      outline: none;
     }
 
     .file-input-wrapper {
-      margin-bottom: 1rem;
+      margin-bottom: clamp(0.5rem, 2vw, 1rem);
     }
 
     .file-input {
       display: block;
       width: 100%;
-      padding: 0.8rem;
+      padding: clamp(0.5rem, 2vw, 0.8rem);
       border: 2px dashed #ddd;
       border-radius: 8px;
+      background: #fff;
+      color: #666;
+      font-size: clamp(14px, 3.5vw, 16px);
       text-align: center;
       cursor: pointer;
-      transition: border-color 0.2s;
+      transition: all 0.2s ease;
     }
 
-    .file-input:hover {
-      border-color: #aaa;
+    .file-input:hover,
+    .file-input:focus {
+      border-color: #007bff;
+      color: #007bff;
     }
 
     button {
       display: block;
       width: 100%;
-      padding: 1rem;
+      padding: clamp(0.75rem, 2.5vw, 1rem);
       border: none;
       border-radius: 8px;
       background: #007bff;
       color: white;
       font-weight: 500;
-      font-size: 1rem;
+      font-size: clamp(14px, 3.5vw, 16px);
+      line-height: 1.2;
       cursor: pointer;
-      transition: background-color 0.2s;
+      transition: background-color 0.2s, transform 0.1s;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
     }
 
     button:hover {
       background: #0056b3;
+    }
+
+    button:active {
+      transform: translateY(1px);
     }
 
     .toolbar {
@@ -113,8 +203,9 @@ export class PageHome extends SignalWatcher(PageElement) {
       justify-content: space-around;
       align-items: center;
       height: 60px;
-      padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom)
-        env(safe-area-inset-left);
+      padding: 0 max(env(safe-area-inset-right), 8px)
+        max(env(safe-area-inset-bottom), 0px)
+        max(env(safe-area-inset-left), 8px);
       background: #fff;
       box-shadow: 0 -2px 10px rgb(0 0 0 / 10%);
     }
@@ -125,7 +216,7 @@ export class PageHome extends SignalWatcher(PageElement) {
       align-items: center;
       padding: 8px;
       color: #666;
-      font-size: 0.75rem;
+      font-size: clamp(11px, 3vw, 14px);
       text-decoration: none;
       user-select: none;
       transition: color 0.2s;
@@ -137,22 +228,9 @@ export class PageHome extends SignalWatcher(PageElement) {
     }
 
     .toolbar svg {
-      width: 24px;
-      height: 24px;
+      width: clamp(20px, 6vw, 24px);
+      height: clamp(20px, 6vw, 24px);
       margin-bottom: 4px;
-    }
-
-    @media (hover: hover) {
-      .input-section:hover {
-        transform: translateY(-2px);
-      }
-    }
-
-    @supports (padding: max(0px)) {
-      .toolbar {
-        height: calc(60px + env(safe-area-inset-bottom));
-        padding-bottom: max(env(safe-area-inset-bottom), 0px);
-      }
     }
   `;
 
