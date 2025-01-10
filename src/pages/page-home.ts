@@ -8,7 +8,7 @@
 import { SignalWatcher } from '@lit-labs/signals';
 import { Router } from '@vaadin/router';
 import { html, css } from 'lit';
-import { customElement, query } from 'lit/decorators.js';
+import { customElement, query, state } from 'lit/decorators.js';
 
 import { sendTextMessage, sendImageMessage } from '../components/network.js';
 import config from '../config.js';
@@ -19,10 +19,11 @@ export class PageHome extends SignalWatcher(PageElement) {
   @query('#text-input') textInput?: HTMLTextAreaElement;
   @query('#image-input') imageInput?: HTMLInputElement;
   @query('#image-prompt') imagePrompt?: HTMLTextAreaElement;
+  @state() private showSuccessPopup = false;
+  @state() private showErrorPopup = false;
+  @state() private errorMessage = '';
 
   static styles = css`
-
-
     /* Notched device support */
     @supports (padding: max(0px)) {
       .toolbar {
@@ -74,7 +75,8 @@ export class PageHome extends SignalWatcher(PageElement) {
       button {
         padding: 0.75rem;
       }
-    }    :host {
+    }
+    :host {
       display: block;
       box-sizing: border-box;
       min-height: 100vh;
@@ -232,10 +234,68 @@ export class PageHome extends SignalWatcher(PageElement) {
       height: clamp(20px, 6vw, 24px);
       margin-bottom: 4px;
     }
+
+    .success-popup,
+    .error-popup {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      z-index: 2000;
+      max-width: 90vw;
+      padding: 16px 24px;
+      border-radius: 8px;
+      color: white;
+      box-shadow: 0 4px 12px rgb(0 0 0 / 15%);
+      font-weight: 500;
+      text-align: center;
+      word-break: break-word;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      transform: translateX(-50%);
+    }
+
+    .success-popup {
+      background: #4caf50;
+    }
+
+    .error-popup {
+      background: #f44336;
+    }
+
+    .success-popup.show,
+    .error-popup.show {
+      opacity: 1;
+    }
   `;
+
+  private showSuccess() {
+    this.showSuccessPopup = true;
+    this.showErrorPopup = false;
+    setTimeout(() => {
+      this.showSuccessPopup = false;
+    }, 3000);
+  }
+
+  private showError(message: string) {
+    this.errorMessage = message;
+    this.showErrorPopup = true;
+    this.showSuccessPopup = false;
+    setTimeout(() => {
+      this.showErrorPopup = false;
+    }, 5000);
+  }
 
   render() {
     return html`
+      <div class="success-popup ${this.showSuccessPopup ? 'show' : ''}">
+        Request sent successfully!
+      </div>
+
+      <div class="error-popup ${this.showErrorPopup ? 'show' : ''}">
+        ${this.errorMessage}
+      </div>
+
       <div class="container">
         <h1>Natural Language Interaction Protocol</h1>
 
@@ -296,6 +356,7 @@ export class PageHome extends SignalWatcher(PageElement) {
         const response = await sendTextMessage(this.textInput.value);
         const prompt = this.textInput.value;
         this.textInput.value = ''; // Clear input
+        this.showSuccess();
 
         // Store data in sessionStorage for the chat page
         sessionStorage.setItem(
@@ -310,6 +371,7 @@ export class PageHome extends SignalWatcher(PageElement) {
         Router.go('/chat');
       } catch (error) {
         console.error('Error sending text:', error);
+        this.showError('Failed to send text. Please try again later.');
       }
     }
   }
@@ -331,7 +393,7 @@ export class PageHome extends SignalWatcher(PageElement) {
 
   async handleImageSubmit() {
     if (!this.imageInput?.files?.length) {
-      alert('Please select an image first');
+      this.showError('Please select an image first');
       return;
     }
 
@@ -348,6 +410,7 @@ export class PageHome extends SignalWatcher(PageElement) {
             base64Image,
             file.type
           );
+          this.showSuccess();
 
           // Store data in sessionStorage for the chat page
           sessionStorage.setItem(
@@ -366,7 +429,7 @@ export class PageHome extends SignalWatcher(PageElement) {
           Router.go('/chat');
         } catch (error) {
           console.error('Error sending image:', error);
-          alert('Error processing image. Please try again.');
+          this.showError('Failed to process image. Please try again.');
         }
       }
     };

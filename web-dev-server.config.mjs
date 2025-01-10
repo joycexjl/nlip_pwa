@@ -6,6 +6,7 @@
  */
 
 import { fileURLToPath } from 'url';
+
 import { esbuildPlugin } from '@web/dev-server-esbuild';
 
 export default {
