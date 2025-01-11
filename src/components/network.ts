@@ -2,9 +2,9 @@
  * Network utilities for communicating with the backend server
  */
 
-import { envSignal } from '../context/app-context.js';
+// import { envSignal } from '../context/app-context.js';
 
-const BASE_URL = envSignal;
+const BASE_URL = 'https://druid.eecs.umich.edu';
 const API_ENDPOINTS = {
   auth: `${BASE_URL}/auth`,
   nlip: `${BASE_URL}/nlip`,
@@ -40,7 +40,7 @@ export async function getAuthUrl(
   provider: 'google' | 'custom' = 'google'
 ): Promise<string> {
   try {
-    const response = await fetch(`${API_ENDPOINTS.auth}/${provider}`);
+    const response = await fetch(`${API_ENDPOINTS.auth}/${provider}/`);
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
@@ -63,7 +63,7 @@ export async function sendTextMessage(text: string): Promise<string> {
   };
 
   try {
-    const response = await fetch(API_ENDPOINTS.nlip, {
+    const response = await fetch(`${API_ENDPOINTS.nlip}/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -114,7 +114,7 @@ export async function sendImageMessage(
   };
 
   try {
-    const response = await fetch(API_ENDPOINTS.nlip, {
+    const response = await fetch(`${API_ENDPOINTS.nlip}/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -142,7 +142,7 @@ export async function uploadFile(file: File): Promise<string> {
   formData.append('file', file);
 
   try {
-    const response = await fetch(API_ENDPOINTS.upload, {
+    const response = await fetch(`${API_ENDPOINTS.upload}/`, {
       method: 'POST',
       body: formData,
     });
