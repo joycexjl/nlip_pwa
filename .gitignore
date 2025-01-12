@@ -1,3 +1,6 @@
 node_modules/
 server/dist/
 diff.txt
+.devcontainer/
+.github/
+.vscode/
