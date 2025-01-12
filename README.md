@@ -1,21 +1,9 @@
 [![CI](https://github.com/IBM/pwa-lit-template/workflows/CI/badge.svg)](https://github.com/IBM/pwa-lit-template/actions)
 [![Built with pwa-lit-template](https://img.shields.io/badge/built%20with-pwa--lit--template-blue)](https://github.com/IBM/pwa-lit-template 'Built with pwa-lit-template')
 
-# pwa-lit-template
+# NLIP-PWA
 
-> [Getting started](#getting-started) | [Build for production](#build-for-production) | [Create a new page](#create-a-new-page) | [Environment configuration](#environment-configuration) | [Service worker](#service-worker) | [Browser support](#browser-support)
-
-This project helps you to build Progressive Web Applications following the modern web standards, best practices and providing you with tools for that purpose. Out of the box, provides you with the following features:
-
-- Simple way to create Web Components with [Lit](https://lit.dev).
-- Small and powerful client-side router for Web Components with [Vaadin Router](https://vaadin.com/router).
-- All the benefits from a PWA (manifest, service worker, offline UI) thanks to [Workbox](https://developers.google.com/web/tools/workbox) and [pwa-helpers](https://github.com/thepassle/pwa-helpers).
-- SEO friendly thanks to the `PageElement` custom element and the `html-meta-manager`.
-- A development server with auto-reload to serve the application without bundling with [`@web/dev-server`](https://modern-web.dev/docs/dev-server/overview/).
-- Simple build flow thanks to [Rollup](https://rollupjs.org) and [`@open-wc/building-rollup`](https://open-wc.org/docs/building/rollup/) initial configuration.
-- Easy deployment over to [prpl-server](https://github.com/Polymer/prpl-server) or any static hosting.
-
-Check out [our roadmap](https://github.com/IBM/pwa-lit-template/projects/1) to get informed of the latest features released and the upcoming ones.
+This is a Progressive Web App for demonstrating the Natural Language Interaction Protocol in application.
 
 ## Getting started
 
