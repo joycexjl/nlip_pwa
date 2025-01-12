@@ -19,6 +19,34 @@ Check out [our roadmap](https://github.com/IBM/pwa-lit-template/projects/1) to g
 
 ## Getting started
 
+### Quick Start
+
+Start the development environment using docker compose: 
+
+```
+version: '3.8'
+services:
+  app:
+  	container_name: nlip_pwa
+    build: .
+    ports:
+      - "8000:8000" # Modify this line according to your local port
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    command: npm run dev 
+```
+
+Then run:
+
+```
+docker compose up -d 
+```
+
+ 
+
 ### Prerequisites
 
 - [node.js](https://nodejs.org)
