@@ -4,3 +4,4 @@ diff.txt
 .devcontainer/
 .github/
 .vscode/
+*.pub
