@@ -3,14 +3,11 @@ version: '3.8'
 services:
   app:
     container_name: nlip_pwa
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     ports:
       - '8000:8000'
     volumes:
-      - ./:/app:delegated
-      - /app/node_modules
+      - .:/app
     environment:
       - NODE_ENV=development
     command: npm run start
