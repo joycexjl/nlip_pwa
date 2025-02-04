@@ -17,14 +17,6 @@ export const routes: Route[] = [
     },
   },
   {
-    path: '/user',
-    name: 'user',
-    component: 'page-user',
-    action: async () => {
-      await import('../pages/page-user.js');
-    },
-  },
-  {
     path: '/chat',
     name: 'chat',
     component: 'page-chat',

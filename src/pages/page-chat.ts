@@ -13,6 +13,7 @@ import { Marked } from 'marked';
 
 import { sendTextMessage, sendImageMessage } from '../components/network.js';
 import { PageElement } from '../helpers/page-element.js';
+import { chatInputStyles } from '../styles/chat-input.js';
 
 interface ChatMessage {
   type: 'user' | 'ai';
@@ -40,6 +41,7 @@ export class PageChat extends SignalWatcher(PageElement) {
   @state() private contextMenuX = 0;
   @state() private contextMenuY = 0;
   @state() private editingMessageId: string | null = null;
+  @state() private isRecording = false;
 
   private static readonly STORAGE_KEY = 'chat-history';
   private documentClickHandler: (e: MouseEvent) => void;
@@ -48,8 +50,11 @@ export class PageChat extends SignalWatcher(PageElement) {
   private marked = new Marked({
     breaks: true,
     gfm: true,
-    silent: true
+    silent: true,
   });
+
+  private mediaRecorder?: MediaRecorder;
+  private audioChunks: Blob[] = [];
 
   constructor() {
     super();
@@ -59,9 +64,9 @@ export class PageChat extends SignalWatcher(PageElement) {
     window.addEventListener('scroll', () => {
       if (!ticking) {
         window.requestAnimationFrame(() => {
-          const scrolledFromBottom = 
-            document.documentElement.scrollHeight - 
-            window.innerHeight - 
+          const scrolledFromBottom =
+            document.documentElement.scrollHeight -
+            window.innerHeight -
             window.scrollY;
           this.showScrollButton = scrolledFromBottom > 200;
           ticking = false;
@@ -72,7 +77,10 @@ export class PageChat extends SignalWatcher(PageElement) {
   }
 
   private onDocumentClick(e: MouseEvent) {
-    if (this.showContextMenu && !(e.target as Element).closest('.context-menu')) {
+    if (
+      this.showContextMenu &&
+      !(e.target as Element).closest('.context-menu')
+    ) {
       this.hideContextMenu();
     }
   }
@@ -112,11 +120,13 @@ export class PageChat extends SignalWatcher(PageElement) {
   private scrollToBottom() {
     window.scrollTo({
       top: document.documentElement.scrollHeight,
-      behavior: 'smooth'
+      behavior: 'smooth',
     });
   }
 
   static styles = css`
+    ${chatInputStyles}
+
     :host {
       display: block;
       min-height: 100vh;
@@ -142,42 +152,6 @@ export class PageChat extends SignalWatcher(PageElement) {
       padding: clamp(1rem, 5vw, 2rem);
       padding-bottom: calc(80px + env(safe-area-inset-bottom));
       overscroll-behavior: contain;
-    }
-
-    .toolbar {
-      position: fixed;
-      right: 0;
-      bottom: 0;
-      left: 0;
-      z-index: 900;
-      display: flex;
-      justify-content: space-around;
-      align-items: center;
-      height: 60px;
-      padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-      background: rgb(255 255 255 / 95%);
-      box-shadow: 0 -2px 10px rgb(0 0 0 / 10%);
-      backdrop-filter: blur(10px);
-      backdrop-filter: blur(10px);
-    }
-
-    .toolbar a {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 8px;
-      color: #666;
-      font-size: 0.75rem;
-      text-decoration: none;
-      user-select: none;
-      transition: color 0.2s;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    .toolbar svg {
-      width: 24px;
-      height: 24px;
-      margin-bottom: 4px;
     }
 
     .message {
@@ -221,7 +195,8 @@ export class PageChat extends SignalWatcher(PageElement) {
     }
 
     .message-content.markdown {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+        Ubuntu, Cantarell, sans-serif;
     }
 
     .message-content.markdown p {
@@ -233,7 +208,8 @@ export class PageChat extends SignalWatcher(PageElement) {
       border-radius: 6px;
       background-color: rgb(175 184 193 / 20%);
       font-size: 0.9em;
-      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+        'Liberation Mono', monospace;
     }
 
     .message-content.markdown pre {
@@ -316,109 +292,6 @@ export class PageChat extends SignalWatcher(PageElement) {
       background: #f0f0f0;
     }
 
-    .chat-input-container {
-      position: fixed;
-      right: 0;
-      bottom: calc(60px + env(safe-area-inset-bottom));
-      left: 0;
-      left: 50%;
-      z-index: 1000;
-      display: flex;
-      gap: 12px;
-      align-items: flex-start;
-      box-sizing: border-box;
-      width: 100%;
-      max-width: min(95vw, 800px);
-      margin: 0 auto;
-      padding: clamp(8px, 3vw, 16px);
-      border-radius: 16px;
-      background: rgb(255 255 255 / 95%);
-      box-shadow: 0 -2px 20px rgb(0 0 0 / 15%);
-      transform: translateX(-50%);
-      backdrop-filter: blur(10px);
-      backdrop-filter: blur(10px);
-    }
-
-    .chat-input-wrapper {
-      position: relative;
-      display: flex;
-      flex: 1;
-      gap: clamp(8px, 2vw, 12px);
-      align-items: flex-start;
-      width: 100%;
-      min-width: 0;
-    }
-
-    .chat-input {
-      flex: 1;
-      box-sizing: border-box;
-      width: 100%;
-      min-height: clamp(40px, 6vh, 60px);
-      max-height: clamp(120px, 20vh, 200px);
-      padding: clamp(8px, 2vw, 12px);
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      background: #fff;
-      color: #333;
-      font-size: clamp(14px, 4vw, 16px);
-      font-family: inherit;
-      line-height: 1.5;
-      resize: none;
-      transition: border-color 0.2s;
-      touch-action: manipulation;
-      text-size-adjust: 100%;
-    }
-
-    .chat-input:focus {
-      border-color: #007bff;
-      outline: none;
-    }
-
-    .button-group {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .image-upload-button,
-    .send-button {
-      display: flex;
-      flex-shrink: 0;
-      justify-content: center;
-      align-items: center;
-      width: 40px;
-      height: 40px;
-      padding: 0;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: background-color 0.2s;
-    }
-
-    .image-upload-button {
-      background: #f0f0f0;
-      color: #666;
-    }
-
-    .image-upload-button:hover {
-      background: #e0e0e0;
-    }
-
-    .send-button {
-      background: #007bff;
-      color: white;
-    }
-
-    .send-button:hover {
-      background: #0056b3;
-    }
-
-    .image-upload-button svg,
-    .send-button svg {
-      width: 24px;
-      height: 24px;
-    }
-
     .success-popup,
     .error-popup {
       position: fixed;
@@ -456,28 +329,6 @@ export class PageChat extends SignalWatcher(PageElement) {
       display: none;
     }
 
-    @media (max-width: 480px) {
-      .chat-input-container {
-        bottom: calc(65px + env(safe-area-inset-bottom));
-        max-width: 92vw;
-        padding: 8px;
-      }
-      
-      .chat-container {
-        padding-bottom: calc(90px + env(safe-area-inset-bottom));
-      }
-      
-      .button-group {
-        gap: 4px;
-      }
-
-      .image-upload-button,
-      .send-button {
-        width: 36px;
-        height: 36px;
-      }
-    }
-
     .typing-indicator {
       display: flex;
       gap: 4px;
@@ -507,7 +358,8 @@ export class PageChat extends SignalWatcher(PageElement) {
     }
 
     @keyframes typing-animation {
-      0%, 100% {
+      0%,
+      100% {
         opacity: 0.3;
         transform: scale(1);
       }
@@ -554,33 +406,6 @@ export class PageChat extends SignalWatcher(PageElement) {
     .scroll-button svg {
       width: 24px;
       height: 24px;
-    }
-
-    @media (max-width: 480px) {
-      .scroll-button {
-        right: 16px;
-        bottom: calc(160px + env(safe-area-inset-bottom));
-        width: 36px;
-        height: 36px;
-        margin-right: calc((100vw - 92vw) / 2);
-      }
-
-      .scroll-button svg {
-        width: 20px;
-        height: 20px;
-      }
-
-      .chat-input {
-        min-height: clamp(40px, 6vh, 60px);
-        max-height: clamp(120px, 20vh, 200px);
-      }
-    }
-
-    @media (min-width: 481px) {
-      .chat-input {
-        min-height: clamp(40px, 8vh, 80px);
-        max-height: clamp(120px, 25vh, 250px);
-      }
     }
 
     .context-menu {
@@ -724,6 +549,10 @@ export class PageChat extends SignalWatcher(PageElement) {
         padding: 0;
       }
     }
+
+    main:empty ~ footer {
+      display: none;
+    }
   `;
 
   private showSuccess() {
@@ -823,11 +652,14 @@ export class PageChat extends SignalWatcher(PageElement) {
         ${unsafeHTML(this.marked.parse(message.content))}
       </div>`;
     }
-    
+
     return html`<div class="message-content">${message.content}</div>`;
   }
 
-  private handleMessageInteraction(event: MouseEvent | TouchEvent, messageId: string) {
+  private handleMessageInteraction(
+    event: MouseEvent | TouchEvent,
+    messageId: string
+  ) {
     const isLongPress = event.type === 'touchstart';
     if (isLongPress) {
       event.preventDefault();
@@ -852,7 +684,7 @@ export class PageChat extends SignalWatcher(PageElement) {
   }
 
   private copyMessage() {
-    const message = this.messages.find(m => m.id === this.selectedMessageId);
+    const message = this.messages.find((m) => m.id === this.selectedMessageId);
     if (message) {
       navigator.clipboard.writeText(message.content);
       this.showSuccess();
@@ -863,14 +695,19 @@ export class PageChat extends SignalWatcher(PageElement) {
   private startEditMessage() {
     this.editingMessageId = this.selectedMessageId;
     this.hideContextMenu();
-    
+
     // Add a small delay to allow the container to expand first
     requestAnimationFrame(() => {
-      const textarea = this.renderRoot.querySelector('.editing-input') as HTMLTextAreaElement;
+      const textarea = this.renderRoot.querySelector(
+        '.editing-input'
+      ) as HTMLTextAreaElement;
       if (textarea) {
         textarea.focus();
-        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-        
+        textarea.setSelectionRange(
+          textarea.value.length,
+          textarea.value.length
+        );
+
         // Scroll the textarea into view with some padding
         textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
@@ -883,12 +720,12 @@ export class PageChat extends SignalWatcher(PageElement) {
 
   private saveEditedMessage(event: Event, messageId: string) {
     const textarea = event.target as HTMLTextAreaElement;
-    const messageIndex = this.messages.findIndex(m => m.id === messageId);
+    const messageIndex = this.messages.findIndex((m) => m.id === messageId);
     if (messageIndex !== -1 && textarea.value.trim()) {
       const updatedMessages = [...this.messages];
       updatedMessages[messageIndex] = {
         ...updatedMessages[messageIndex],
-        content: textarea.value.trim()
+        content: textarea.value.trim(),
       };
       this.messages = updatedMessages;
       this.saveChatHistory();
@@ -898,7 +735,7 @@ export class PageChat extends SignalWatcher(PageElement) {
   }
 
   private resendMessage() {
-    const message = this.messages.find(m => m.id === this.selectedMessageId);
+    const message = this.messages.find((m) => m.id === this.selectedMessageId);
     if (message) {
       if (this.chatInput) {
         this.chatInput.value = message.content;
@@ -906,6 +743,40 @@ export class PageChat extends SignalWatcher(PageElement) {
       this.handleSend();
     }
     this.hideContextMenu();
+  }
+
+  private async startVoiceInput() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.mediaRecorder = new MediaRecorder(stream);
+      this.isRecording = true;
+
+      this.mediaRecorder.ondataavailable = (event) => {
+        this.audioChunks.push(event.data);
+      };
+
+      this.mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
+        this.audioChunks = [];
+        stream.getTracks().forEach((track) => track.stop());
+        this.isRecording = false;
+        // Here you would typically send the audioBlob to your speech-to-text service
+        // For now, we'll just show a message
+        this.showError('Speech-to-text conversion not implemented yet');
+      };
+
+      this.mediaRecorder.start();
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+      this.showError('Could not access microphone');
+    }
+  }
+
+  private stopVoiceInput() {
+    if (this.mediaRecorder && this.isRecording) {
+      this.mediaRecorder.stop();
+      this.isRecording = false;
+    }
   }
 
   render() {
@@ -921,20 +792,31 @@ export class PageChat extends SignalWatcher(PageElement) {
       <div class="chat-container">
         ${this.messages.map(
           (message) => html`
-            <div 
-              class="message ${message.type}-message ${message.id === this.selectedMessageId ? 'selected' : ''} ${message.id === this.editingMessageId ? 'editing' : ''}"
-              @contextmenu=${(e: MouseEvent) => this.handleMessageInteraction(e, message.id)}
+            <div
+              class="message ${message.type}-message ${message.id ===
+              this.selectedMessageId
+                ? 'selected'
+                : ''} ${message.id === this.editingMessageId ? 'editing' : ''}"
+              @contextmenu=${(e: MouseEvent) =>
+                this.handleMessageInteraction(e, message.id)}
               @touchstart=${(e: TouchEvent) => {
-                const timer = setTimeout(() => this.handleMessageInteraction(e, message.id), 500);
+                const timer = setTimeout(
+                  () => this.handleMessageInteraction(e, message.id),
+                  500
+                );
                 const clearTimer = () => clearTimeout(timer);
-                e.target?.addEventListener('touchend', clearTimer, { once: true });
-                e.target?.addEventListener('touchmove', clearTimer, { once: true });
+                e.target?.addEventListener('touchend', clearTimer, {
+                  once: true,
+                });
+                e.target?.addEventListener('touchmove', clearTimer, {
+                  once: true,
+                });
               }}
             >
               <div class="message-header">
                 ${message.type === 'user' ? 'You' : 'AI'}
               </div>
-              ${this.editingMessageId === message.id 
+              ${this.editingMessageId === message.id
                 ? html`
                     <div class="editing-input-container">
                       <textarea
@@ -951,20 +833,23 @@ export class PageChat extends SignalWatcher(PageElement) {
                         }}
                       ></textarea>
                       <div class="editing-actions">
-                        <button class="editing-button cancel-button" @click=${this.cancelEdit}>
+                        <button
+                          class="editing-button cancel-button"
+                          @click=${this.cancelEdit}
+                        >
                           Cancel
                         </button>
-                        <button 
-                          class="editing-button save-button" 
-                          @click=${(e: Event) => this.saveEditedMessage(e, message.id)}
+                        <button
+                          class="editing-button save-button"
+                          @click=${(e: Event) =>
+                            this.saveEditedMessage(e, message.id)}
                         >
                           Save
                         </button>
                       </div>
                     </div>
                   `
-                : this.renderMessageContent(message)
-              }
+                : this.renderMessageContent(message)}
               ${message.image
                 ? html`
                     <div class="message-image">
@@ -989,46 +874,73 @@ export class PageChat extends SignalWatcher(PageElement) {
           : ''}
       </div>
 
-      <div 
+      <div
         class="context-menu ${this.showContextMenu ? 'show' : ''}"
         style="left: ${this.contextMenuX}px; top: ${this.contextMenuY}px;"
       >
         <button class="context-menu-item" @click=${this.copyMessage}>
           <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+            <path
+              d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
+            />
           </svg>
           Copy
         </button>
         <button class="context-menu-item" @click=${this.startEditMessage}>
           <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+            <path
+              d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+            />
           </svg>
           Edit
         </button>
         <button class="context-menu-item" @click=${this.resendMessage}>
           <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+            <path
+              d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
+            />
           </svg>
           Resend
         </button>
       </div>
 
-      <button 
+      <button
         class="scroll-button ${this.showScrollButton ? 'show' : ''}"
         @click=${this.scrollToBottom}
         aria-label="Scroll to bottom"
       >
         <svg viewBox="0 0 24 24" fill="currentColor">
-          <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z" transform="rotate(180 12 12)"/>
+          <path
+            d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"
+            transform="rotate(180 12 12)"
+          />
         </svg>
       </button>
 
       <div class="chat-input-container">
         <div class="chat-input-wrapper">
+          <button
+            class="voice-input-button ${this.isRecording ? 'recording' : ''}"
+            @click=${() =>
+              this.isRecording ? this.stopVoiceInput() : this.startVoiceInput()}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              ${this.isRecording
+                ? html`<path
+                    d="M12 2c-1.66 0-3 1.34-3 3v6c0 1.66 1.34 3 3 3s3-1.34 3-3V5c0-1.66-1.34-3-3-3zm-1 11.93c-3.94-.49-7-3.85-7-7.93h2c0 3.31 2.69 6 6 6s6-2.69 6-6h2c0 4.08-3.06 7.44-7 7.93V19h4v2H8v-2h4v-5.07z"
+                  ></path>`
+                : html`<path
+                      d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"
+                    ></path
+                    ><path
+                      d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"
+                    ></path>`}
+            </svg>
+          </button>
           <textarea
             id="chat-input"
             class="chat-input"
-            placeholder="Type your message..."
+            placeholder="Type your message here..."
             @keydown=${(e: KeyboardEvent) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -1064,25 +976,6 @@ export class PageChat extends SignalWatcher(PageElement) {
           @change=${this.handleImageUpload}
         />
       </div>
-
-      <nav class="toolbar">
-        <a href="/">
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path
-              d="M12 2L2 12h3v8h6v-6h2v6h6v-8h3L12 2zm0 2.84L19.5 12h-1.5v8h-4v-6H10v6H6v-8H4.5L12 4.84z"
-            />
-          </svg>
-          Home
-        </a>
-        <a href="/user">
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path
-              d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0-6c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 7c-2.67 0-8 1.34-8 4v3h16v-3c0-2.66-5.33-4-8-4zm6 5H6v-.99c.2-.72 3.3-2.01 6-2.01s5.8 1.29 6 2v1z"
-            />
-          </svg>
-          User
-        </a>
-      </nav>
     `;
   }
 
@@ -1101,9 +994,22 @@ export class PageChat extends SignalWatcher(PageElement) {
     // Load chat data from sessionStorage if exists
     const chatData = sessionStorage.getItem('chatData');
     if (chatData) {
-      const { userPrompt, aiResponse } = JSON.parse(chatData);
+      const { userPrompt } = JSON.parse(chatData);
       this.addMessage('user', userPrompt);
-      this.addMessage('ai', aiResponse);
+      this.isAiTyping = true;
+
+      // Send the initial message to backend
+      sendTextMessage(userPrompt)
+        .then((response) => {
+          this.isAiTyping = false;
+          this.addMessage('ai', response);
+        })
+        .catch((error) => {
+          this.isAiTyping = false;
+          console.error('Error sending message:', error);
+          this.showError('Failed to send message. Please try again.');
+        });
+
       sessionStorage.removeItem('chatData');
     }
 
@@ -1113,7 +1019,7 @@ export class PageChat extends SignalWatcher(PageElement) {
 
   disconnectedCallback(): void {
     super.disconnectedCallback?.();
-    
+
     // Remove the viewport meta tag when component is disconnected
     const meta = document.head.querySelector('meta[name="viewport"]');
     if (meta) {
