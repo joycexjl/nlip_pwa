@@ -9,6 +9,7 @@ import { SignalWatcher } from '@lit-labs/signals';
 import { Router } from '@vaadin/router';
 import { html, css } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
+import { ref, createRef } from 'lit/directives/ref.js';
 
 import { PageElement } from '../helpers/page-element.js';
 import { chatInputStyles } from '../styles/chat-input.js';
@@ -17,13 +18,17 @@ import { chatInputStyles } from '../styles/chat-input.js';
 export class PageHome extends SignalWatcher(PageElement) {
   @query('#text-input') textInput?: HTMLTextAreaElement;
   @query('#image-input') imageInput?: HTMLInputElement;
-  @query('#image-prompt') imagePrompt?: HTMLTextAreaElement;
+  @query('#document-input') documentInput?: HTMLInputElement;
   @state() private isRecording = false;
   @state() private showUploadMenu = false;
+  @state() private uploadStatus = '';
+  @state() private statusType: 'success' | 'error' | 'loading' | '' = '';
+
+  private documentInputRef = createRef<HTMLInputElement>();
 
   static styles = css`
     ${chatInputStyles}
-    
+
     :host {
       display: block;
       box-sizing: border-box;
@@ -36,7 +41,8 @@ export class PageHome extends SignalWatcher(PageElement) {
     .container {
       max-width: 1200px;
       margin: 0 auto;
-      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+      padding: env(safe-area-inset-top) env(safe-area-inset-right)
+        env(safe-area-inset-bottom) env(safe-area-inset-left);
     }
 
     .header {
@@ -146,7 +152,8 @@ export class PageHome extends SignalWatcher(PageElement) {
       transition: all 0.2s;
     }
 
-    .prompt-card:hover, .prompt-card:focus {
+    .prompt-card:hover,
+    .prompt-card:focus {
       background: white;
       box-shadow: 0 4px 6px rgb(0 0 0 / 10%);
       transform: translateY(-2px);
@@ -237,6 +244,49 @@ export class PageHome extends SignalWatcher(PageElement) {
       height: 20px;
       color: #64748b;
     }
+
+    .status-message {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      z-index: 2000;
+      padding: 16px 24px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgb(0 0 0 / 15%);
+      font-weight: 500;
+      text-align: center;
+      word-break: break-word;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      transform: translateX(-50%);
+    }
+
+    .status-success {
+      background: #4caf50;
+      color: white;
+    }
+
+    .status-error {
+      background: #f44336;
+      color: white;
+    }
+
+    .status-loading {
+      background: #2196f3;
+      color: white;
+    }
+
+    .hidden-file-input {
+      position: absolute;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      border: 0;
+      white-space: nowrap;
+    }
   `;
 
   render() {
@@ -245,7 +295,9 @@ export class PageHome extends SignalWatcher(PageElement) {
         <div class="header">
           <div class="logo">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2L2 12h3v8h6v-6h2v6h6v-8h3L12 2zm0 2.84L19.5 12h-1.5v8h-4v-6H10v6H6v-8H4.5L12 4.84z"/>
+              <path
+                d="M12 2L2 12h3v8h6v-6h2v6h6v-8h3L12 2zm0 2.84L19.5 12h-1.5v8h-4v-6H10v6H6v-8H4.5L12 4.84z"
+              />
             </svg>
           </div>
           <div class="user-avatar">M</div>
@@ -253,15 +305,25 @@ export class PageHome extends SignalWatcher(PageElement) {
 
         <div class="main-content">
           <div class="quick-actions">
-            <button class="action-button" @click=${() => window.location.href = '/scan'}>
+            <button
+              class="action-button"
+              @click=${() => (window.location.href = '/scan')}
+            >
               <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm2 10H3v4c0 1.1.9 2 2 2h4v-2H5v-4zm14 4h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4zm0-16h-4v2h4v4h2V5c0-1.1-.9-2-2-2z"/>
+                <path
+                  d="M3 5v4h2V5h4V3H5c-1.1 0-2 .9-2 2zm2 10H3v4c0 1.1.9 2 2 2h4v-2H5v-4zm14 4h-4v2h4c1.1 0 2-.9 2-2v-4h-2v4zm0-16h-4v2h4v4h2V5c0-1.1-.9-2-2-2z"
+                />
               </svg>
               Scan QR
             </button>
-            <button class="action-button" @click=${() => window.location.href = '/map'}>
+            <button
+              class="action-button"
+              @click=${() => (window.location.href = '/map')}
+            >
               <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/>
+                <path
+                  d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"
+                />
               </svg>
               Map
             </button>
@@ -272,66 +334,77 @@ export class PageHome extends SignalWatcher(PageElement) {
           </div>
 
           <div class="quick-prompts">
-            <button 
+            <button
               class="prompt-card"
-              @click=${() => this.navigateToChat("I need a secure AI diagnosis.")}
+              @click=${() =>
+                this.navigateToChat('I need a secure AI diagnosis.')}
               @keydown=${(e: KeyboardEvent) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  this.navigateToChat("I need a secure AI diagnosis.");
+                  this.navigateToChat('I need a secure AI diagnosis.');
                 }
               }}
             >
               <svg class="prompt-icon" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"/>
+                <path
+                  d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"
+                />
               </svg>
               <h3 class="prompt-title">I need a secure AI diagnosis.</h3>
             </button>
 
-            <button 
+            <button
               class="prompt-card"
-              @click=${() => this.navigateToChat("I want a combined market analysis.")}
+              @click=${() =>
+                this.navigateToChat('I want a combined market analysis.')}
               @keydown=${(e: KeyboardEvent) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  this.navigateToChat("I want a combined market analysis.");
+                  this.navigateToChat('I want a combined market analysis.');
                 }
               }}
             >
               <svg class="prompt-icon" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/>
+                <path
+                  d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"
+                />
               </svg>
               <h3 class="prompt-title">I want a combined market analysis.</h3>
             </button>
 
-            <button 
+            <button
               class="prompt-card"
-              @click=${() => this.navigateToChat("Find me the best shampoo.")}
+              @click=${() => this.navigateToChat('Find me the best shampoo.')}
               @keydown=${(e: KeyboardEvent) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  this.navigateToChat("Find me the best shampoo.");
+                  this.navigateToChat('Find me the best shampoo.');
                 }
               }}
             >
               <svg class="prompt-icon" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M7 20c0 .55.45 1 1 1h8c.55 0 1-.45 1-1v-3H7v3zM18 7c-.55 0-1 .45-1 1v5H7V8c0-.55-.45-1-1-1s-1 .45-1 1v5c0 .55.45 1 1 1h12c.55 0 1-.45 1-1V8c0-.55-.45-1-1-1zm-3-5H9C6.79 2 5 3.79 5 6v1h2V6c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2v1h2V6c0-2.21-1.79-4-4-4z"/>
+                <path
+                  d="M7 20c0 .55.45 1 1 1h8c.55 0 1-.45 1-1v-3H7v3zM18 7c-.55 0-1 .45-1 1v5H7V8c0-.55-.45-1-1-1s-1 .45-1 1v5c0 .55.45 1 1 1h12c.55 0 1-.45 1-1V8c0-.55-.45-1-1-1zm-3-5H9C6.79 2 5 3.79 5 6v1h2V6c0-1.1.9-2 2-2h6c1.1 0 2 .9 2 2v1h2V6c0-2.21-1.79-4-4-4z"
+                />
               </svg>
               <h3 class="prompt-title">Find me the best shampoo.</h3>
             </button>
 
-            <button 
+            <button
               class="prompt-card"
-              @click=${() => this.navigateToChat("I want insights into this project.")}
+              @click=${() =>
+                this.navigateToChat('I want insights into this project.')}
               @keydown=${(e: KeyboardEvent) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
-                  this.navigateToChat("I want insights into this project.");
+                  this.navigateToChat('I want insights into this project.');
                 }
               }}
             >
               <svg class="prompt-icon" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
+                <path
+                  d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"
+                />
               </svg>
               <h3 class="prompt-title">I want insights into this project.</h3>
             </button>
@@ -343,12 +416,20 @@ export class PageHome extends SignalWatcher(PageElement) {
         <div class="chat-input-wrapper">
           <button
             class="voice-input-button ${this.isRecording ? 'recording' : ''}"
-            @click=${() => this.isRecording ? this.stopVoiceInput() : this.startVoiceInput()}
+            @click=${() =>
+              this.isRecording ? this.stopVoiceInput() : this.startVoiceInput()}
           >
             <svg viewBox="0 0 24 24" fill="currentColor">
-              ${this.isRecording 
-                ? html`<path d="M12 2c-1.66 0-3 1.34-3 3v6c0 1.66 1.34 3 3 3s3-1.34 3-3V5c0-1.66-1.34-3-3-3zm-1 11.93c-3.94-.49-7-3.85-7-7.93h2c0 3.31 2.69 6 6 6s6-2.69 6-6h2c0 4.08-3.06 7.44-7 7.93V19h4v2H8v-2h4v-5.07z"></path>`
-                : html`<path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"></path><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"></path>`}
+              ${this.isRecording
+                ? html`<path
+                    d="M12 2c-1.66 0-3 1.34-3 3v6c0 1.66 1.34 3 3 3s3-1.34 3-3V5c0-1.66-1.34-3-3-3zm-1 11.93c-3.94-.49-7-3.85-7-7.93h2c0 3.31 2.69 6 6 6s6-2.69 6-6h2c0 4.08-3.06 7.44-7 7.93V19h4v2H8v-2h4v-5.07z"
+                  ></path>`
+                : html`<path
+                      d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"
+                    ></path
+                    ><path
+                      d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"
+                    ></path>`}
             </svg>
           </button>
           <textarea
@@ -376,34 +457,74 @@ export class PageHome extends SignalWatcher(PageElement) {
               </button>
 
               <div class="upload-menu ${this.showUploadMenu ? 'show' : ''}">
-                <button class="upload-option" @click=${() => this.handleImageSelect()}>
+                <button
+                  class="upload-option"
+                  @click=${() => this.handleImageSelect()}
+                >
                   <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+                    <path
+                      d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"
+                    ></path>
                   </svg>
                   Upload Image
                 </button>
-                <button class="upload-option" @click=${() => this.handleImageSelect()}>
+                <button
+                  class="upload-option"
+                  @click=${() => this.documentInputRef.value?.click()}
+                >
                   <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    <path
+                      d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"
+                    ></path>
                   </svg>
                   Upload Document
                 </button>
               </div>
             </div>
 
-            <button class="send-button" @click=${() => {
-              const input = this.renderRoot?.querySelector('.chat-input') as HTMLTextAreaElement;
-              if (input?.value) {
-                this.navigateToChat(input.value);
-              }
-            }}>
+            <button
+              class="send-button"
+              @click=${() => {
+                const input = this.renderRoot?.querySelector(
+                  '.chat-input'
+                ) as HTMLTextAreaElement;
+                if (input?.value) {
+                  this.navigateToChat(input.value);
+                }
+              }}
+            >
               <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
               </svg>
             </button>
           </div>
         </div>
       </div>
+
+      <input
+        type="file"
+        id="image-input"
+        class="hidden-file-input"
+        accept="image/jpeg,image/png,image/gif,image/bmp"
+        @change=${this.handleImageUpload}
+      />
+
+      <input
+        ${ref(this.documentInputRef)}
+        type="file"
+        id="document-input"
+        class="hidden-file-input"
+        accept=".pdf,.doc,.docx,.txt"
+        @change=${this.handleDocumentUpload}
+      />
+
+      ${this.uploadStatus
+        ? html`
+            <div class="status-message status-${this.statusType}">
+              ${this.uploadStatus}
+            </div>
+          `
+        : ''}
     `;
   }
 
@@ -423,7 +544,7 @@ export class PageHome extends SignalWatcher(PageElement) {
       this.mediaRecorder.onstop = () => {
         const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
         this.audioChunks = [];
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach((track) => track.stop());
         this.isRecording = false;
         // Here you would typically send the audioBlob to your speech-to-text service
         // For now, we'll just show a message
@@ -444,12 +565,39 @@ export class PageHome extends SignalWatcher(PageElement) {
   }
 
   private navigateToChat(prompt?: string) {
-    if (prompt) {
-      sessionStorage.setItem('chatData', JSON.stringify({
-        userPrompt: prompt,
-        aiResponse: ''
-      }));
+    if (!prompt) return;
+
+    const pendingImageData = sessionStorage.getItem('pendingImageData');
+    const pendingDocumentData = sessionStorage.getItem('pendingDocumentData');
+    const pendingDocumentContent = sessionStorage.getItem(
+      'pendingDocumentContent'
+    );
+
+    let chatData: any = {
+      userPrompt: prompt,
+    };
+
+    if (pendingImageData) {
+      const imageData = JSON.parse(pendingImageData);
+      chatData = {
+        ...chatData,
+        imageData: imageData.data,
+        imageType: imageData.type,
+      };
+      sessionStorage.removeItem('pendingImageData');
+    } else if (pendingDocumentData && pendingDocumentContent) {
+      const documentData = JSON.parse(pendingDocumentData);
+      chatData = {
+        ...chatData,
+        documentName: documentData.name,
+        documentType: documentData.type,
+        documentContent: pendingDocumentContent,
+      };
+      sessionStorage.removeItem('pendingDocumentData');
+      sessionStorage.removeItem('pendingDocumentContent');
     }
+
+    sessionStorage.setItem('chatData', JSON.stringify(chatData));
     Router.go('/chat');
   }
 
@@ -462,8 +610,12 @@ export class PageHome extends SignalWatcher(PageElement) {
     if (!input.files?.length) return;
 
     const file = input.files[0];
-    if (!['image/jpeg', 'image/png', 'image/gif', 'image/bmp'].includes(file.type)) {
-      console.error('Please select a valid image file (JPEG, PNG, GIF, or BMP)');
+    if (
+      !['image/jpeg', 'image/png', 'image/gif', 'image/bmp'].includes(file.type)
+    ) {
+      this.showError(
+        'Please select a valid image file (JPEG, PNG, GIF, or BMP)'
+      );
       input.value = '';
       return;
     }
@@ -471,16 +623,35 @@ export class PageHome extends SignalWatcher(PageElement) {
     const reader = new FileReader();
     reader.onload = async (e) => {
       if (e.target?.result) {
-        const base64Image = (e.target.result as string).split(',')[1];
-        const prompt = 'What do you see in this image?';
+        const chatInput = this.renderRoot?.querySelector(
+          '.chat-input'
+        ) as HTMLTextAreaElement;
+        if (chatInput) {
+          // Store current cursor position
+          const cursorPos = chatInput.selectionStart;
+          const currentValue = chatInput.value;
 
-        sessionStorage.setItem('chatData', JSON.stringify({
-          userPrompt: `Image uploaded with prompt: ${prompt}`,
-          imageData: e.target.result,
-          imageType: file.type
-        }));
+          // Insert default prompt if input is empty
+          if (!currentValue.trim()) {
+            chatInput.value = 'What do you see in this image?';
+          }
 
-        Router.go('/chat');
+          // Focus the input and move cursor to end
+          chatInput.focus();
+          chatInput.setSelectionRange(
+            chatInput.value.length,
+            chatInput.value.length
+          );
+        }
+
+        // Store the image data for later use when sending
+        sessionStorage.setItem(
+          'pendingImageData',
+          JSON.stringify({
+            data: e.target.result,
+            type: file.type,
+          })
+        );
       }
     };
     reader.readAsDataURL(file);
@@ -501,6 +672,62 @@ export class PageHome extends SignalWatcher(PageElement) {
         document.addEventListener('click', this.closeUploadMenu);
       });
     }
+  }
+
+  private async handleDocumentUpload(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+
+    if (!file) return;
+
+    const chatInput = this.renderRoot?.querySelector(
+      '.chat-input'
+    ) as HTMLTextAreaElement;
+    if (chatInput) {
+      // Store current cursor position
+      const cursorPos = chatInput.selectionStart;
+      const currentValue = chatInput.value;
+
+      // Insert default prompt if input is empty
+      if (!currentValue.trim()) {
+        chatInput.value = `Please analyze this document: ${file.name}`;
+      }
+
+      // Focus the input and move cursor to end
+      chatInput.focus();
+      chatInput.setSelectionRange(
+        chatInput.value.length,
+        chatInput.value.length
+      );
+    }
+
+    // Store the file information for later use
+    sessionStorage.setItem(
+      'pendingDocumentData',
+      JSON.stringify({
+        name: file.name,
+        type: file.type,
+      })
+    );
+
+    // Store the actual file in sessionStorage
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      if (e.target?.result) {
+        sessionStorage.setItem(
+          'pendingDocumentContent',
+          e.target.result as string
+        );
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  private showError(message: string) {
+    console.error(message);
+    this.uploadStatus = message;
+    this.statusType = 'error';
+    this.requestUpdate();
   }
 
   meta() {
