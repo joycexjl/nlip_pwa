@@ -733,8 +733,40 @@ export class PageChat extends SignalWatcher(PageElement) {
           imageData.type
         );
       } else if (documentData) {
-        // Implement document sending logic here
-        response = await sendTextMessage(messageContent); // Temporary fallback
+        // Send document content as base64 string
+        const base64Content = documentData.content.split(',')[1];
+        const request = {
+          format: 'text',
+          subformat: 'english',
+          content: messageContent,
+          submessages: [
+            {
+              format: 'binary',
+              subformat: documentData.type.split('/')[1],
+              content: base64Content,
+            },
+          ],
+        };
+
+        const uploadResponse = await fetch(
+          'https://druid.eecs.umich.edu/nlip/',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(request),
+          }
+        );
+
+        if (!uploadResponse.ok) {
+          throw new Error(
+            `Failed to process document: ${uploadResponse.statusText}`
+          );
+        }
+
+        const data = await uploadResponse.json();
+        response = data.content;
       } else {
         response = await sendTextMessage(messageContent);
       }

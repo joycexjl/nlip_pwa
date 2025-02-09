@@ -13,6 +13,7 @@ import { ref, createRef } from 'lit/directives/ref.js';
 
 import { PageElement } from '../helpers/page-element.js';
 import { chatInputStyles } from '../styles/chat-input.js';
+import { handleFileUpload, sendChatMessage } from '../utils/network.js';
 
 @customElement('page-home')
 export class PageHome extends SignalWatcher(PageElement) {
@@ -478,28 +479,49 @@ export class PageHome extends SignalWatcher(PageElement) {
 
       <div class="chat-input-container">
         <div class="chat-input-wrapper">
-          ${this.previewImage || this.previewDocumentName ? html`
-            <div class="file-preview">
-              <div class="preview-header">
-                <span>${this.previewImage ? 'Image Preview' : 'Document Preview'}</span>
-                <button class="preview-close" @click=${this.clearPreview}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-                  </svg>
-                </button>
-              </div>
-              ${this.previewImage ? html`
-                <img class="preview-image" src="${this.previewImage}" alt="Preview" />
-              ` : html`
-                <div class="preview-document">
-                  <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
-                  </svg>
-                  <span>${this.previewDocumentName}</span>
+          ${this.previewImage || this.previewDocumentName
+            ? html`
+                <div class="file-preview">
+                  <div class="preview-header">
+                    <span
+                      >${this.previewImage
+                        ? 'Image Preview'
+                        : 'Document Preview'}</span
+                    >
+                    <button class="preview-close" @click=${this.clearPreview}>
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                  ${this.previewImage
+                    ? html`
+                        <img
+                          class="preview-image"
+                          src="${this.previewImage}"
+                          alt="Preview"
+                        />
+                      `
+                    : html`
+                        <div class="preview-document">
+                          <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path
+                              d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"
+                            />
+                          </svg>
+                          <span>${this.previewDocumentName}</span>
+                        </div>
+                      `}
                 </div>
-              `}
-            </div>
-          ` : ''}
+              `
+            : ''}
           <button
             class="voice-input-button ${this.isRecording ? 'recording' : ''}"
             @click=${() =>
@@ -770,51 +792,74 @@ export class PageHome extends SignalWatcher(PageElement) {
 
     if (!file) return;
 
-    const chatInput = this.renderRoot?.querySelector(
-      '.chat-input'
-    ) as HTMLTextAreaElement;
-    if (chatInput) {
-      // Store current cursor position
-      const cursorPos = chatInput.selectionStart;
-      const currentValue = chatInput.value;
+    this.uploadStatus = `Uploading ${file.name}...`;
+    this.statusType = 'loading';
+    this.requestUpdate();
 
-      // Insert default prompt if input is empty
-      if (!currentValue.trim()) {
-        chatInput.value = `Please analyze this document: ${file.name}`;
+    try {
+      const result = await handleFileUpload(file);
+      this.uploadStatus =
+        result.message || `Successfully uploaded ${file.name}!`;
+      this.statusType = 'success';
+
+      // Reset the file input
+      if (this.documentInputRef.value) {
+        this.documentInputRef.value.value = '';
       }
 
-      // Focus the input and move cursor to end
-      chatInput.focus();
-      chatInput.setSelectionRange(
-        chatInput.value.length,
-        chatInput.value.length
-      );
-    }
-
-    // Set preview document name
-    this.previewDocumentName = file.name;
-    this.previewImage = null;
-
-    // Store the file information for later use
-    sessionStorage.setItem(
-      'pendingDocumentData',
-      JSON.stringify({
-        name: file.name,
-        type: file.type,
-      })
-    );
-
-    // Store the actual file in sessionStorage
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      if (e.target?.result) {
-        sessionStorage.setItem(
-          'pendingDocumentContent',
-          e.target.result as string
+      // Set up the chat input and preview
+      const chatInput = this.renderRoot?.querySelector(
+        '.chat-input'
+      ) as HTMLTextAreaElement;
+      if (chatInput) {
+        if (!chatInput.value.trim()) {
+          chatInput.value = `Please analyze this document: ${file.name}`;
+        }
+        chatInput.focus();
+        chatInput.setSelectionRange(
+          chatInput.value.length,
+          chatInput.value.length
         );
       }
-    };
-    reader.readAsDataURL(file);
+
+      // Set preview document name
+      this.previewDocumentName = file.name;
+      this.previewImage = null;
+
+      // Store the file information for later use
+      sessionStorage.setItem(
+        'pendingDocumentData',
+        JSON.stringify({
+          name: file.name,
+          type: file.type,
+          url: result.url,
+        })
+      );
+
+      // Store the actual file content
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        if (e.target?.result) {
+          sessionStorage.setItem(
+            'pendingDocumentContent',
+            e.target.result as string
+          );
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Upload error:', error);
+      this.uploadStatus =
+        error instanceof Error
+          ? error.message
+          : 'Upload failed. Please try again.';
+      this.statusType = 'error';
+      if (this.documentInputRef.value) {
+        this.documentInputRef.value.value = '';
+      }
+    }
+
+    this.requestUpdate();
   }
 
   private showError(message: string) {
@@ -837,5 +882,69 @@ export class PageHome extends SignalWatcher(PageElement) {
       title: 'Home',
       description: 'Home page',
     };
+  }
+
+  private async handleChatSubmit(e: Event) {
+    e.preventDefault();
+
+    const chatInput = this.renderRoot?.querySelector(
+      '.chat-input'
+    ) as HTMLTextAreaElement;
+    if (!chatInput || !chatInput.value.trim()) return;
+
+    const userMessage = chatInput.value.trim();
+    chatInput.value = '';
+
+    // Add user message to chat
+    this.messages = [...this.messages, { role: 'user', content: userMessage }];
+
+    // Get document data if available
+    const pendingDocumentData = sessionStorage.getItem('pendingDocumentData');
+    const documentData = pendingDocumentData
+      ? JSON.parse(pendingDocumentData)
+      : null;
+
+    try {
+      // Add loading message
+      this.messages = [
+        ...this.messages,
+        { role: 'assistant', content: '...', loading: true },
+      ];
+      this.requestUpdate();
+
+      const result = await sendChatMessage(userMessage, documentData);
+
+      // Remove loading message and add actual response
+      this.messages = this.messages.slice(0, -1);
+      this.messages = [
+        ...this.messages,
+        { role: 'assistant', content: result.message },
+      ];
+
+      // Clear document data after first message
+      if (documentData) {
+        sessionStorage.removeItem('pendingDocumentData');
+        sessionStorage.removeItem('pendingDocumentContent');
+        this.previewDocumentName = '';
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      // Remove loading message and add error message
+      this.messages = this.messages.slice(0, -1);
+      this.messages = [
+        ...this.messages,
+        {
+          role: 'assistant',
+          content:
+            error instanceof Error
+              ? error.message
+              : 'Failed to send message. Please try again.',
+          error: true,
+        },
+      ];
+    }
+
+    this.requestUpdate();
+    this.scrollToBottom();
   }
 }

@@ -135,26 +135,56 @@ export async function sendImageMessage(
 }
 
 /**
- * Upload a file using form data
+ * Upload a file to the server
+ * Returns the response data from the server
  */
-export async function uploadFile(file: File): Promise<string> {
-  const formData = new FormData();
-  formData.append('file', file);
-
+export async function handleFileUpload(
+  file: File
+): Promise<{ message?: string; url?: string }> {
   try {
-    const response = await fetch(`${API_ENDPOINTS.upload}/`, {
+    // First, get the upload URL
+    const response = await fetch(`${API_ENDPOINTS.nlip}/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content: 'request_upload_url',
+        Format: 'text',
+        Subformat: 'english',
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get upload URL: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const uploadUrl = data.content;
+
+    // Now upload the file
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const uploadResponse = await fetch(uploadUrl, {
       method: 'POST',
       body: formData,
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse
+        .text()
+        .catch(() => 'Unknown error');
+      throw new Error(`Upload failed: ${errorText}`);
     }
 
-    const data = await response.json();
-    return data.url;
+    const responseData = await uploadResponse.json().catch(() => null);
+    return {
+      message: responseData?.message || `Successfully uploaded ${file.name}!`,
+      url: responseData?.url,
+    };
   } catch (error) {
-    console.error('Error uploading file:', error);
+    console.error('Upload error:', error);
     throw error;
   }
 }
