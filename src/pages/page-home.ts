@@ -23,6 +23,8 @@ export class PageHome extends SignalWatcher(PageElement) {
   @state() private showUploadMenu = false;
   @state() private uploadStatus = '';
   @state() private statusType: 'success' | 'error' | 'loading' | '' = '';
+  @state() private previewImage: string | null = null;
+  @state() private previewDocumentName: string | null = null;
 
   private documentInputRef = createRef<HTMLInputElement>();
 
@@ -287,6 +289,68 @@ export class PageHome extends SignalWatcher(PageElement) {
       border: 0;
       white-space: nowrap;
     }
+
+    .file-preview {
+      position: absolute;
+      right: 0;
+      bottom: calc(100% + 8px);
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px;
+      border-radius: 12px;
+      background: white;
+      box-shadow: 0 4px 12px rgb(0 0 0 / 15%);
+    }
+
+    .preview-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #64748b;
+      font-size: 14px;
+    }
+
+    .preview-close {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 4px;
+      border: none;
+      border-radius: 4px;
+      background: none;
+      color: #94a3b8;
+      cursor: pointer;
+    }
+
+    .preview-close:hover {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+
+    .preview-image {
+      object-fit: contain;
+      max-width: 100%;
+      max-height: 200px;
+      border-radius: 8px;
+    }
+
+    .preview-document {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px;
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #1e293b;
+    }
+
+    .preview-document svg {
+      width: 24px;
+      height: 24px;
+      color: #64748b;
+    }
   `;
 
   render() {
@@ -414,6 +478,28 @@ export class PageHome extends SignalWatcher(PageElement) {
 
       <div class="chat-input-container">
         <div class="chat-input-wrapper">
+          ${this.previewImage || this.previewDocumentName ? html`
+            <div class="file-preview">
+              <div class="preview-header">
+                <span>${this.previewImage ? 'Image Preview' : 'Document Preview'}</span>
+                <button class="preview-close" @click=${this.clearPreview}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                  </svg>
+                </button>
+              </div>
+              ${this.previewImage ? html`
+                <img class="preview-image" src="${this.previewImage}" alt="Preview" />
+              ` : html`
+                <div class="preview-document">
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                  </svg>
+                  <span>${this.previewDocumentName}</span>
+                </div>
+              `}
+            </div>
+          ` : ''}
           <button
             class="voice-input-button ${this.isRecording ? 'recording' : ''}"
             @click=${() =>
@@ -644,6 +730,10 @@ export class PageHome extends SignalWatcher(PageElement) {
           );
         }
 
+        // Set preview image
+        this.previewImage = e.target.result as string;
+        this.previewDocumentName = null;
+
         // Store the image data for later use when sending
         sessionStorage.setItem(
           'pendingImageData',
@@ -701,6 +791,10 @@ export class PageHome extends SignalWatcher(PageElement) {
       );
     }
 
+    // Set preview document name
+    this.previewDocumentName = file.name;
+    this.previewImage = null;
+
     // Store the file information for later use
     sessionStorage.setItem(
       'pendingDocumentData',
@@ -728,6 +822,14 @@ export class PageHome extends SignalWatcher(PageElement) {
     this.uploadStatus = message;
     this.statusType = 'error';
     this.requestUpdate();
+  }
+
+  private clearPreview() {
+    this.previewImage = null;
+    this.previewDocumentName = null;
+    sessionStorage.removeItem('pendingImageData');
+    sessionStorage.removeItem('pendingDocumentData');
+    sessionStorage.removeItem('pendingDocumentContent');
   }
 
   meta() {
