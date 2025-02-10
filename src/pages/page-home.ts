@@ -11,9 +11,9 @@ import { html, css } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import { ref, createRef } from 'lit/directives/ref.js';
 
+import { handleFileUpload, sendTextMessage } from '../components/network.js';
 import { PageElement } from '../helpers/page-element.js';
 import { chatInputStyles } from '../styles/chat-input.js';
-import { handleFileUpload, sendChatMessage } from '../utils/network.js';
 
 @customElement('page-home')
 export class PageHome extends SignalWatcher(PageElement) {
@@ -578,7 +578,7 @@ export class PageHome extends SignalWatcher(PageElement) {
                 </button>
                 <button
                   class="upload-option"
-                  @click=${() => this.documentInputRef.value?.click()}
+                  @click=${() => this.handleDocumentSelect()}
                 >
                   <svg viewBox="0 0 24 24" fill="currentColor">
                     <path
@@ -713,6 +713,10 @@ export class PageHome extends SignalWatcher(PageElement) {
     this.imageInput?.click();
   }
 
+  private handleDocumentSelect() {
+    this.documentInputRef.value?.click();
+  }
+
   private async handleImageUpload(event: Event) {
     const input = event.target as HTMLInputElement;
     if (!input.files?.length) return;
@@ -721,68 +725,57 @@ export class PageHome extends SignalWatcher(PageElement) {
     if (
       !['image/jpeg', 'image/png', 'image/gif', 'image/bmp'].includes(file.type)
     ) {
-      this.showError(
-        'Please select a valid image file (JPEG, PNG, GIF, or BMP)'
+      this.showStatus(
+        'Please select a valid image file (JPEG, PNG, GIF, or BMP)',
+        'error'
       );
       input.value = '';
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      if (e.target?.result) {
-        const chatInput = this.renderRoot?.querySelector(
-          '.chat-input'
-        ) as HTMLTextAreaElement;
-        if (chatInput) {
-          // Store current cursor position
-          const cursorPos = chatInput.selectionStart;
-          const currentValue = chatInput.value;
+    try {
+      const result = await handleFileUpload(file);
+      this.showStatus(result.message, 'success');
 
-          // Insert default prompt if input is empty
-          if (!currentValue.trim()) {
-            chatInput.value = 'What do you see in this image?';
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        if (e.target?.result) {
+          const chatInput = this.renderRoot?.querySelector(
+            '.chat-input'
+          ) as HTMLTextAreaElement;
+          if (chatInput) {
+            if (!chatInput.value.trim()) {
+              chatInput.value = 'What do you see in this image?';
+            }
+            chatInput.focus();
+            chatInput.setSelectionRange(
+              chatInput.value.length,
+              chatInput.value.length
+            );
           }
 
-          // Focus the input and move cursor to end
-          chatInput.focus();
-          chatInput.setSelectionRange(
-            chatInput.value.length,
-            chatInput.value.length
+          this.previewImage = e.target.result as string;
+          this.previewDocumentName = null;
+
+          sessionStorage.setItem(
+            'pendingImageData',
+            JSON.stringify({
+              data: e.target.result,
+              type: file.type,
+            })
           );
         }
-
-        // Set preview image
-        this.previewImage = e.target.result as string;
-        this.previewDocumentName = null;
-
-        // Store the image data for later use when sending
-        sessionStorage.setItem(
-          'pendingImageData',
-          JSON.stringify({
-            data: e.target.result,
-            type: file.type,
-          })
-        );
-      }
-    };
-    reader.readAsDataURL(file);
-  }
-
-  private closeUploadMenu = (e: MouseEvent) => {
-    if (!(e.target as Element).closest('.button-group')) {
-      this.showUploadMenu = false;
-      document.removeEventListener('click', this.closeUploadMenu);
-    }
-  };
-
-  private toggleUploadMenu() {
-    this.showUploadMenu = !this.showUploadMenu;
-    if (this.showUploadMenu) {
-      // Add click listener with a small delay to prevent immediate closing
-      setTimeout(() => {
-        document.addEventListener('click', this.closeUploadMenu);
-      });
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Upload error:', error);
+      this.showStatus(
+        error instanceof Error
+          ? error.message
+          : 'Upload failed. Please try again.',
+        'error'
+      );
+      input.value = '';
     }
   }
 
@@ -792,15 +785,9 @@ export class PageHome extends SignalWatcher(PageElement) {
 
     if (!file) return;
 
-    this.uploadStatus = `Uploading ${file.name}...`;
-    this.statusType = 'loading';
-    this.requestUpdate();
-
     try {
       const result = await handleFileUpload(file);
-      this.uploadStatus =
-        result.message || `Successfully uploaded ${file.name}!`;
-      this.statusType = 'success';
+      this.showStatus(result.message, 'success');
 
       // Reset the file input
       if (this.documentInputRef.value) {
@@ -827,19 +814,16 @@ export class PageHome extends SignalWatcher(PageElement) {
       this.previewImage = null;
 
       // Store the file information for later use
-      sessionStorage.setItem(
-        'pendingDocumentData',
-        JSON.stringify({
-          name: file.name,
-          type: file.type,
-          url: result.url,
-        })
-      );
-
-      // Store the actual file content
       const reader = new FileReader();
       reader.onload = async (e) => {
         if (e.target?.result) {
+          sessionStorage.setItem(
+            'pendingDocumentData',
+            JSON.stringify({
+              name: file.name,
+              type: file.type,
+            })
+          );
           sessionStorage.setItem(
             'pendingDocumentContent',
             e.target.result as string
@@ -849,24 +833,44 @@ export class PageHome extends SignalWatcher(PageElement) {
       reader.readAsDataURL(file);
     } catch (error) {
       console.error('Upload error:', error);
-      this.uploadStatus =
+      this.showStatus(
         error instanceof Error
           ? error.message
-          : 'Upload failed. Please try again.';
-      this.statusType = 'error';
+          : 'Upload failed. Please try again.',
+        'error'
+      );
       if (this.documentInputRef.value) {
         this.documentInputRef.value.value = '';
       }
     }
-
-    this.requestUpdate();
   }
 
-  private showError(message: string) {
-    console.error(message);
+  private showStatus(message: string, type: 'success' | 'error' | 'loading') {
     this.uploadStatus = message;
-    this.statusType = 'error';
-    this.requestUpdate();
+    this.statusType = type;
+    setTimeout(
+      () => {
+        this.uploadStatus = '';
+        this.statusType = '';
+      },
+      type === 'error' ? 5000 : 3000
+    );
+  }
+
+  private closeUploadMenu = (e: MouseEvent) => {
+    if (!(e.target as Element).closest('.button-group')) {
+      this.showUploadMenu = false;
+      document.removeEventListener('click', this.closeUploadMenu);
+    }
+  };
+
+  private toggleUploadMenu() {
+    this.showUploadMenu = !this.showUploadMenu;
+    if (this.showUploadMenu) {
+      setTimeout(() => {
+        document.addEventListener('click', this.closeUploadMenu);
+      });
+    }
   }
 
   private clearPreview() {
@@ -882,69 +886,5 @@ export class PageHome extends SignalWatcher(PageElement) {
       title: 'Home',
       description: 'Home page',
     };
-  }
-
-  private async handleChatSubmit(e: Event) {
-    e.preventDefault();
-
-    const chatInput = this.renderRoot?.querySelector(
-      '.chat-input'
-    ) as HTMLTextAreaElement;
-    if (!chatInput || !chatInput.value.trim()) return;
-
-    const userMessage = chatInput.value.trim();
-    chatInput.value = '';
-
-    // Add user message to chat
-    this.messages = [...this.messages, { role: 'user', content: userMessage }];
-
-    // Get document data if available
-    const pendingDocumentData = sessionStorage.getItem('pendingDocumentData');
-    const documentData = pendingDocumentData
-      ? JSON.parse(pendingDocumentData)
-      : null;
-
-    try {
-      // Add loading message
-      this.messages = [
-        ...this.messages,
-        { role: 'assistant', content: '...', loading: true },
-      ];
-      this.requestUpdate();
-
-      const result = await sendChatMessage(userMessage, documentData);
-
-      // Remove loading message and add actual response
-      this.messages = this.messages.slice(0, -1);
-      this.messages = [
-        ...this.messages,
-        { role: 'assistant', content: result.message },
-      ];
-
-      // Clear document data after first message
-      if (documentData) {
-        sessionStorage.removeItem('pendingDocumentData');
-        sessionStorage.removeItem('pendingDocumentContent');
-        this.previewDocumentName = '';
-      }
-    } catch (error) {
-      console.error('Chat error:', error);
-      // Remove loading message and add error message
-      this.messages = this.messages.slice(0, -1);
-      this.messages = [
-        ...this.messages,
-        {
-          role: 'assistant',
-          content:
-            error instanceof Error
-              ? error.message
-              : 'Failed to send message. Please try again.',
-          error: true,
-        },
-      ];
-    }
-
-    this.requestUpdate();
-    this.scrollToBottom();
   }
 }

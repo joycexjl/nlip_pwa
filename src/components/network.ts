@@ -4,7 +4,8 @@
 
 // import { envSignal } from '../context/app-context.js';
 
-const BASE_URL = 'https://druid.eecs.umich.edu';
+// const BASE_URL = 'https://druid.eecs.umich.edu';
+const BASE_URL = 'https://localhost:443'; // for testing largedataupload locally
 const API_ENDPOINTS = {
   auth: `${BASE_URL}/auth`,
   nlip: `${BASE_URL}/nlip`,
@@ -180,7 +181,7 @@ export async function handleFileUpload(
 
     const responseData = await uploadResponse.json().catch(() => null);
     return {
-      message: responseData?.message || `Successfully uploaded ${file.name}!`,
+      // message: `Successfully uploaded ${file.name}!`,
       url: responseData?.url,
     };
   } catch (error) {

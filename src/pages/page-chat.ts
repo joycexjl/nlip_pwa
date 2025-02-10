@@ -12,7 +12,11 @@ import { ref, createRef } from 'lit/directives/ref.js';
 import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { Marked } from 'marked';
 
-import { sendTextMessage, sendImageMessage } from '../components/network.js';
+import {
+  sendTextMessage,
+  sendImageMessage,
+  handleFileUpload,
+} from '../components/network.js';
 import { PageElement } from '../helpers/page-element.js';
 import { chatInputStyles } from '../styles/chat-input.js';
 
@@ -43,7 +47,6 @@ export class PageChat extends SignalWatcher(PageElement) {
   @state() private contextMenuX = 0;
   @state() private contextMenuY = 0;
   @state() private editingMessageId: string | null = null;
-  @state() private isRecording = false;
   @state() private showUploadMenu = false;
   @state() private previewImage: string | null = null;
   @state() private previewDocumentName: string | null = null;
@@ -58,9 +61,6 @@ export class PageChat extends SignalWatcher(PageElement) {
     gfm: true,
     silent: true,
   });
-
-  private mediaRecorder?: MediaRecorder;
-  private audioChunks: Blob[] = [];
 
   constructor() {
     super();
@@ -158,6 +158,45 @@ export class PageChat extends SignalWatcher(PageElement) {
       padding: clamp(1rem, 5vw, 2rem);
       padding-bottom: calc(80px + env(safe-area-inset-bottom));
       overscroll-behavior: contain;
+    }
+
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      max-width: min(90vw, 800px);
+      margin: 0 auto;
+      padding: 1rem;
+      background: rgb(245 245 247 / 90%);
+      backdrop-filter: blur(10px);
+    }
+
+    .clear-history-button {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 8px;
+      background: #ef4444;
+      color: white;
+      font-weight: 500;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .clear-history-button:hover {
+      background: #dc2626;
+    }
+
+    .clear-history-button svg {
+      width: 16px;
+      height: 16px;
     }
 
     .message {
@@ -719,15 +758,16 @@ export class PageChat extends SignalWatcher(PageElement) {
       sessionStorage.removeItem('pendingDocumentContent');
     }
 
+    // Add user message to chat
     this.addMessage('user', messageContent, imageData);
     this.chatInput.value = '';
     this.clearPreview();
     this.isAiTyping = true;
 
     try {
-      let response;
+      let aiResponse: string;
       if (imageData) {
-        response = await sendImageMessage(
+        aiResponse = await sendImageMessage(
           messageContent,
           imageData.data.split(',')[1],
           imageData.type
@@ -748,32 +788,34 @@ export class PageChat extends SignalWatcher(PageElement) {
           ],
         };
 
-        const uploadResponse = await fetch(
-          'https://druid.eecs.umich.edu/nlip/',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(request),
-          }
-        );
+        const response = await fetch('https://druid.eecs.umich.edu/nlip/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(request),
+        });
 
-        if (!uploadResponse.ok) {
-          throw new Error(
-            `Failed to process document: ${uploadResponse.statusText}`
-          );
+        if (!response.ok) {
+          throw new Error(`Failed to process document: ${response.statusText}`);
         }
 
-        const data = await uploadResponse.json();
-        response = data.content;
+        const data = await response.json();
+        aiResponse = data.content;
       } else {
-        response = await sendTextMessage(messageContent);
+        aiResponse = await sendTextMessage(messageContent);
       }
 
       this.isAiTyping = false;
-      this.addMessage('ai', response);
-      this.showSuccess();
+      if (aiResponse) {
+        // Check if response contains /upload/
+        if (aiResponse.includes('/upload/')) {
+          this.addMessage('ai', 'Successfully uploaded file');
+        } else {
+          this.addMessage('ai', aiResponse);
+        }
+        this.showSuccess();
+      }
     } catch (error) {
       this.isAiTyping = false;
       console.error('Error sending message:', error);
@@ -800,45 +842,48 @@ export class PageChat extends SignalWatcher(PageElement) {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      if (e.target?.result) {
-        const chatInput = this.renderRoot?.querySelector(
-          '.chat-input'
-        ) as HTMLTextAreaElement;
-        if (chatInput) {
-          // Store current cursor position
-          const cursorPos = chatInput.selectionStart;
-          const currentValue = chatInput.value;
+    try {
+      const result = await handleFileUpload(file);
 
-          // Insert default prompt if input is empty
-          if (!currentValue.trim()) {
-            chatInput.value = 'What do you see in this image?';
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        if (e.target?.result) {
+          const chatInput = this.renderRoot?.querySelector(
+            '.chat-input'
+          ) as HTMLTextAreaElement;
+          if (chatInput) {
+            if (!chatInput.value.trim()) {
+              chatInput.value = 'What do you see in this image?';
+            }
+            chatInput.focus();
+            chatInput.setSelectionRange(
+              chatInput.value.length,
+              chatInput.value.length
+            );
           }
 
-          // Focus the input and move cursor to end
-          chatInput.focus();
-          chatInput.setSelectionRange(
-            chatInput.value.length,
-            chatInput.value.length
+          this.previewImage = e.target.result as string;
+          this.previewDocumentName = null;
+
+          sessionStorage.setItem(
+            'pendingImageData',
+            JSON.stringify({
+              data: e.target.result,
+              type: file.type,
+            })
           );
         }
-
-        // Set preview image
-        this.previewImage = e.target.result as string;
-        this.previewDocumentName = null;
-
-        // Store the image data for later use when sending
-        sessionStorage.setItem(
-          'pendingImageData',
-          JSON.stringify({
-            data: e.target.result,
-            type: file.type,
-          })
-        );
-      }
-    };
-    reader.readAsDataURL(file);
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Upload error:', error);
+      this.showError(
+        error instanceof Error
+          ? error.message
+          : 'Upload failed. Please try again.'
+      );
+      input.value = '';
+    }
   }
 
   private async handleDocumentUpload(e: Event) {
@@ -847,51 +892,62 @@ export class PageChat extends SignalWatcher(PageElement) {
 
     if (!file) return;
 
-    const chatInput = this.renderRoot?.querySelector(
-      '.chat-input'
-    ) as HTMLTextAreaElement;
-    if (chatInput) {
-      // Store current cursor position
-      const cursorPos = chatInput.selectionStart;
-      const currentValue = chatInput.value;
+    try {
+      const result = await handleFileUpload(file);
 
-      // Insert default prompt if input is empty
-      if (!currentValue.trim()) {
-        chatInput.value = `Please analyze this document: ${file.name}`;
+      // Reset the file input
+      if (this.documentInputRef.value) {
+        this.documentInputRef.value.value = '';
       }
 
-      // Focus the input and move cursor to end
-      chatInput.focus();
-      chatInput.setSelectionRange(
-        chatInput.value.length,
-        chatInput.value.length
-      );
-    }
-
-    // Set preview document name
-    this.previewDocumentName = file.name;
-    this.previewImage = null;
-
-    // Store the file information for later use
-    sessionStorage.setItem(
-      'pendingDocumentData',
-      JSON.stringify({
-        name: file.name,
-        type: file.type,
-      })
-    );
-
-    // Store the actual file in sessionStorage
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      if (e.target?.result) {
-        sessionStorage.setItem(
-          'pendingDocumentContent',
-          e.target.result as string
+      // Set up the chat input and preview
+      const chatInput = this.renderRoot?.querySelector(
+        '.chat-input'
+      ) as HTMLTextAreaElement;
+      if (chatInput) {
+        if (!chatInput.value.trim()) {
+          chatInput.value = `Please analyze this document: ${file.name}`;
+        }
+        chatInput.focus();
+        chatInput.setSelectionRange(
+          chatInput.value.length,
+          chatInput.value.length
         );
       }
-    };
-    reader.readAsDataURL(file);
+
+      // Set preview document name
+      this.previewDocumentName = file.name;
+      this.previewImage = null;
+
+      // Store the file information for later use
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        if (e.target?.result) {
+          sessionStorage.setItem(
+            'pendingDocumentData',
+            JSON.stringify({
+              name: file.name,
+              type: file.type,
+            })
+          );
+          sessionStorage.setItem(
+            'pendingDocumentContent',
+            e.target.result as string
+          );
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Upload error:', error);
+      this.showError(
+        error instanceof Error
+          ? error.message
+          : 'Upload failed. Please try again.'
+      );
+      if (this.documentInputRef.value) {
+        this.documentInputRef.value.value = '';
+      }
+    }
   }
 
   private closeUploadMenu = (e: MouseEvent) => {
@@ -1010,46 +1066,25 @@ export class PageChat extends SignalWatcher(PageElement) {
     this.hideContextMenu();
   }
 
-  private async startVoiceInput() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      this.mediaRecorder = new MediaRecorder(stream);
-      this.isRecording = true;
-
-      this.mediaRecorder.ondataavailable = (event) => {
-        this.audioChunks.push(event.data);
-      };
-
-      this.mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
-        this.audioChunks = [];
-        stream.getTracks().forEach((track) => track.stop());
-        this.isRecording = false;
-        // Here you would typically send the audioBlob to your speech-to-text service
-        // For now, we'll just show a message
-        this.showError('Speech-to-text conversion not implemented yet');
-      };
-
-      this.mediaRecorder.start();
-    } catch (error) {
-      console.error('Error accessing microphone:', error);
-      this.showError('Could not access microphone');
-    }
-  }
-
-  private stopVoiceInput() {
-    if (this.mediaRecorder && this.isRecording) {
-      this.mediaRecorder.stop();
-      this.isRecording = false;
-    }
-  }
-
   private clearPreview() {
     this.previewImage = null;
     this.previewDocumentName = null;
     sessionStorage.removeItem('pendingImageData');
     sessionStorage.removeItem('pendingDocumentData');
     sessionStorage.removeItem('pendingDocumentContent');
+  }
+
+  private clearChatHistory() {
+    if (
+      confirm(
+        'Are you sure you want to clear the chat history? This cannot be undone.'
+      )
+    ) {
+      this.messages = [];
+      localStorage.removeItem(PageChat.STORAGE_KEY);
+      this.showSuccess();
+      this.requestUpdate();
+    }
   }
 
   render() {
@@ -1060,6 +1095,18 @@ export class PageChat extends SignalWatcher(PageElement) {
 
       <div class="error-popup ${this.showErrorPopup ? 'show' : ''}">
         ${this.errorMessage}
+      </div>
+
+      <div class="header">
+        <h2>Chat</h2>
+        <button class="clear-history-button" @click=${this.clearChatHistory}>
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+            />
+          </svg>
+          Clear History
+        </button>
       </div>
 
       <div class="chat-container">
