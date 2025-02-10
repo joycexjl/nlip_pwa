@@ -737,7 +737,7 @@ export class PageChat extends SignalWatcher(PageElement) {
     );
 
     const messageContent = userMessage;
-    let imageData = null;
+    let imageData: { data: string; type: string } | null = null;
     let documentData = null;
 
     if (pendingImageData) {
@@ -970,7 +970,7 @@ export class PageChat extends SignalWatcher(PageElement) {
   private renderMessageContent(message: ChatMessage) {
     if (message.type === 'ai') {
       return html`<div class="message-content markdown">
-        ${unsafeHTML(this.marked.parse(message.content))}
+        ${unsafeHTML(this.marked.parse(message.content) as string)}
       </div>`;
     }
 
@@ -988,7 +988,12 @@ export class PageChat extends SignalWatcher(PageElement) {
       this.showMessageContextMenu(touch.clientX, touch.clientY, messageId);
     } else if (event.type === 'contextmenu') {
       event.preventDefault();
-      this.showMessageContextMenu(event.clientX, event.clientY, messageId);
+      const mouseEvent = event as MouseEvent;
+      this.showMessageContextMenu(
+        mouseEvent.clientX,
+        mouseEvent.clientY,
+        messageId
+      );
     }
   }
 
@@ -1282,24 +1287,6 @@ export class PageChat extends SignalWatcher(PageElement) {
                 </div>
               `
             : ''}
-          <button
-            class="voice-input-button ${this.isRecording ? 'recording' : ''}"
-            @click=${() =>
-              this.isRecording ? this.stopVoiceInput() : this.startVoiceInput()}
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              ${this.isRecording
-                ? html`<path
-                    d="M12 2c-1.66 0-3 1.34-3 3v6c0 1.66 1.34 3 3 3s3-1.34 3-3V5c0-1.66-1.34-3-3-3zm-1 11.93c-3.94-.49-7-3.85-7-7.93h2c0 3.31 2.69 6 6 6s6-2.69 6-6h2c0 4.08-3.06 7.44-7 7.93V19h4v2H8v-2h4v-5.07z"
-                  ></path>`
-                : html`<path
-                      d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"
-                    ></path
-                    ><path
-                      d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"
-                    ></path>`}
-            </svg>
-          </button>
           <textarea
             id="chat-input"
             class="chat-input"
@@ -1426,7 +1413,11 @@ export class PageChat extends SignalWatcher(PageElement) {
       sendPromise
         .then((response) => {
           this.isAiTyping = false;
-          this.addMessage('ai', response);
+          if (response.includes('/upload/')) {
+            this.addMessage('ai', 'Successfully uploaded file');
+          } else {
+            this.addMessage('ai', response);
+          }
         })
         .catch((error) => {
           this.isAiTyping = false;
