@@ -20,7 +20,6 @@ export class PageHome extends SignalWatcher(PageElement) {
   @query('#text-input') textInput?: HTMLTextAreaElement;
   @query('#image-input') imageInput?: HTMLInputElement;
   @query('#document-input') documentInput?: HTMLInputElement;
-  @state() private isRecording = false;
   @state() private showUploadMenu = false;
   @state() private uploadStatus = '';
   @state() private statusType: 'success' | 'error' | 'loading' | '' = '';
@@ -522,24 +521,6 @@ export class PageHome extends SignalWatcher(PageElement) {
                 </div>
               `
             : ''}
-          <button
-            class="voice-input-button ${this.isRecording ? 'recording' : ''}"
-            @click=${() =>
-              this.isRecording ? this.stopVoiceInput() : this.startVoiceInput()}
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor">
-              ${this.isRecording
-                ? html`<path
-                    d="M12 2c-1.66 0-3 1.34-3 3v6c0 1.66 1.34 3 3 3s3-1.34 3-3V5c0-1.66-1.34-3-3-3zm-1 11.93c-3.94-.49-7-3.85-7-7.93h2c0 3.31 2.69 6 6 6s6-2.69 6-6h2c0 4.08-3.06 7.44-7 7.93V19h4v2H8v-2h4v-5.07z"
-                  ></path>`
-                : html`<path
-                      d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"
-                    ></path
-                    ><path
-                      d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"
-                    ></path>`}
-            </svg>
-          </button>
           <textarea
             class="chat-input"
             placeholder="Type your message here..."
@@ -634,42 +615,6 @@ export class PageHome extends SignalWatcher(PageElement) {
           `
         : ''}
     `;
-  }
-
-  private mediaRecorder?: MediaRecorder;
-  private audioChunks: Blob[] = [];
-
-  private async startVoiceInput() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      this.mediaRecorder = new MediaRecorder(stream);
-      this.isRecording = true;
-
-      this.mediaRecorder.ondataavailable = (event) => {
-        this.audioChunks.push(event.data);
-      };
-
-      this.mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
-        this.audioChunks = [];
-        stream.getTracks().forEach((track) => track.stop());
-        this.isRecording = false;
-        // Here you would typically send the audioBlob to your speech-to-text service
-        // For now, we'll just show a message
-        console.log('Speech-to-text conversion not implemented yet');
-      };
-
-      this.mediaRecorder.start();
-    } catch (error) {
-      console.error('Error accessing microphone:', error);
-    }
-  }
-
-  private stopVoiceInput() {
-    if (this.mediaRecorder && this.isRecording) {
-      this.mediaRecorder.stop();
-      this.isRecording = false;
-    }
   }
 
   private navigateToChat(prompt?: string) {

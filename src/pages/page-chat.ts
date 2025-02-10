@@ -109,7 +109,7 @@ export class PageChat extends SignalWatcher(PageElement) {
   private addMessage(
     type: 'user' | 'ai',
     content: string,
-    image?: { data: string; type: string }
+    image?: { data: string; type: string } | null
   ) {
     const message: ChatMessage = {
       type,
