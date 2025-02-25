@@ -25,6 +25,15 @@ export const routes: Route[] = [
     },
   },
   {
+    path: '/auth/callback',
+    name: 'auth-callback',
+    action: async () => {
+      await import('../components/auth-callback.js');
+      // No need to render a component, the script will handle the redirect
+      return null;
+    },
+  },
+  {
     path: '(.*)',
     name: 'not-found',
     component: 'page-not-found',

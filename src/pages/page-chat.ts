@@ -740,31 +740,42 @@ export class PageChat extends SignalWatcher(PageElement) {
     let imageData: { data: string; type: string } | null = null;
     let documentData = null;
 
-    if (pendingImageData) {
-      const imageInfo = JSON.parse(pendingImageData);
-      imageData = {
-        data: imageInfo.data,
-        type: imageInfo.type,
-      };
-      sessionStorage.removeItem('pendingImageData');
-    } else if (pendingDocumentData && pendingDocumentContent) {
-      const docInfo = JSON.parse(pendingDocumentData);
-      documentData = {
-        name: docInfo.name,
-        type: docInfo.type,
-        content: pendingDocumentContent,
-      };
-      sessionStorage.removeItem('pendingDocumentData');
-      sessionStorage.removeItem('pendingDocumentContent');
-    }
-
-    // Add user message to chat
-    this.addMessage('user', messageContent, imageData);
-    this.chatInput.value = '';
-    this.clearPreview();
-    this.isAiTyping = true;
-
     try {
+      // Handle file upload if there's a pending file
+      if (pendingImageData) {
+        const imageInfo = JSON.parse(pendingImageData);
+        const file = await fetch(imageInfo.data)
+          .then((res) => res.blob())
+          .then((blob) => new File([blob], 'image', { type: imageInfo.type }));
+        await handleFileUpload(file);
+        imageData = {
+          data: imageInfo.data,
+          type: imageInfo.type,
+        };
+        sessionStorage.removeItem('pendingImageData');
+      } else if (pendingDocumentData && pendingDocumentContent) {
+        const docInfo = JSON.parse(pendingDocumentData);
+        const file = await fetch(pendingDocumentContent)
+          .then((res) => res.blob())
+          .then(
+            (blob) => new File([blob], docInfo.name, { type: docInfo.type })
+          );
+        await handleFileUpload(file);
+        documentData = {
+          name: docInfo.name,
+          type: docInfo.type,
+          content: pendingDocumentContent,
+        };
+        sessionStorage.removeItem('pendingDocumentData');
+        sessionStorage.removeItem('pendingDocumentContent');
+      }
+
+      // Add user message to chat
+      this.addMessage('user', messageContent, imageData);
+      this.chatInput.value = '';
+      this.clearPreview();
+      this.isAiTyping = true;
+
       let aiResponse: string;
       if (imageData) {
         aiResponse = await sendImageMessage(
@@ -842,48 +853,37 @@ export class PageChat extends SignalWatcher(PageElement) {
       return;
     }
 
-    try {
-      const result = await handleFileUpload(file);
-
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        if (e.target?.result) {
-          const chatInput = this.renderRoot?.querySelector(
-            '.chat-input'
-          ) as HTMLTextAreaElement;
-          if (chatInput) {
-            if (!chatInput.value.trim()) {
-              chatInput.value = 'What do you see in this image?';
-            }
-            chatInput.focus();
-            chatInput.setSelectionRange(
-              chatInput.value.length,
-              chatInput.value.length
-            );
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      if (e.target?.result) {
+        const chatInput = this.renderRoot?.querySelector(
+          '.chat-input'
+        ) as HTMLTextAreaElement;
+        if (chatInput) {
+          if (!chatInput.value.trim()) {
+            chatInput.value = 'What do you see in this image?';
           }
-
-          this.previewImage = e.target.result as string;
-          this.previewDocumentName = null;
-
-          sessionStorage.setItem(
-            'pendingImageData',
-            JSON.stringify({
-              data: e.target.result,
-              type: file.type,
-            })
+          chatInput.focus();
+          chatInput.setSelectionRange(
+            chatInput.value.length,
+            chatInput.value.length
           );
         }
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      console.error('Upload error:', error);
-      this.showError(
-        error instanceof Error
-          ? error.message
-          : 'Upload failed. Please try again.'
-      );
-      input.value = '';
-    }
+
+        this.previewImage = e.target.result as string;
+        this.previewDocumentName = null;
+
+        sessionStorage.setItem(
+          'pendingImageData',
+          JSON.stringify({
+            data: e.target.result,
+            type: file.type,
+          })
+        );
+      }
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
   }
 
   private async handleDocumentUpload(e: Event) {
@@ -892,62 +892,48 @@ export class PageChat extends SignalWatcher(PageElement) {
 
     if (!file) return;
 
-    try {
-      const result = await handleFileUpload(file);
+    // Reset the file input
+    if (this.documentInputRef.value) {
+      this.documentInputRef.value.value = '';
+    }
 
-      // Reset the file input
-      if (this.documentInputRef.value) {
-        this.documentInputRef.value.value = '';
+    // Set up the chat input and preview
+    const chatInput = this.renderRoot?.querySelector(
+      '.chat-input'
+    ) as HTMLTextAreaElement;
+    if (chatInput) {
+      if (!chatInput.value.trim()) {
+        chatInput.value = `Please analyze this document: ${file.name}`;
       }
+      chatInput.focus();
+      chatInput.setSelectionRange(
+        chatInput.value.length,
+        chatInput.value.length
+      );
+    }
 
-      // Set up the chat input and preview
-      const chatInput = this.renderRoot?.querySelector(
-        '.chat-input'
-      ) as HTMLTextAreaElement;
-      if (chatInput) {
-        if (!chatInput.value.trim()) {
-          chatInput.value = `Please analyze this document: ${file.name}`;
-        }
-        chatInput.focus();
-        chatInput.setSelectionRange(
-          chatInput.value.length,
-          chatInput.value.length
+    // Set preview document name
+    this.previewDocumentName = file.name;
+    this.previewImage = null;
+
+    // Store the file information for later use
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      if (e.target?.result) {
+        sessionStorage.setItem(
+          'pendingDocumentData',
+          JSON.stringify({
+            name: file.name,
+            type: file.type,
+          })
+        );
+        sessionStorage.setItem(
+          'pendingDocumentContent',
+          e.target.result as string
         );
       }
-
-      // Set preview document name
-      this.previewDocumentName = file.name;
-      this.previewImage = null;
-
-      // Store the file information for later use
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        if (e.target?.result) {
-          sessionStorage.setItem(
-            'pendingDocumentData',
-            JSON.stringify({
-              name: file.name,
-              type: file.type,
-            })
-          );
-          sessionStorage.setItem(
-            'pendingDocumentContent',
-            e.target.result as string
-          );
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      console.error('Upload error:', error);
-      this.showError(
-        error instanceof Error
-          ? error.message
-          : 'Upload failed. Please try again.'
-      );
-      if (this.documentInputRef.value) {
-        this.documentInputRef.value.value = '';
-      }
-    }
+    };
+    reader.readAsDataURL(file);
   }
 
   private closeUploadMenu = (e: MouseEvent) => {
@@ -1377,59 +1363,24 @@ export class PageChat extends SignalWatcher(PageElement) {
     // Load chat history from localStorage
     this.loadChatHistory();
 
-    // Load chat data from sessionStorage if exists
-    const chatData = sessionStorage.getItem('chatData');
-    if (chatData) {
-      const data = JSON.parse(chatData);
-      const {
-        userPrompt,
-        imageData,
-        imageType,
-        documentName,
-        documentContent,
-        documentType,
-      } = data;
-
-      // Add user message with image if present
-      if (imageData && imageType) {
-        this.addMessage('user', userPrompt, {
-          data: imageData,
-          type: imageType,
-        });
-      } else if (documentContent && documentType) {
-        this.addMessage('user', userPrompt); // For now, just show the prompt for documents
-      } else {
-        this.addMessage('user', userPrompt);
-      }
-
-      this.isAiTyping = true;
-
-      // Send the message to backend with appropriate handling for different types
-      const sendPromise =
-        imageData && imageType
-          ? sendImageMessage(userPrompt, imageData.split(',')[1], imageType)
-          : sendTextMessage(userPrompt);
-
-      sendPromise
-        .then((response) => {
-          this.isAiTyping = false;
-          if (response.includes('/upload/')) {
-            this.addMessage('ai', 'Successfully uploaded file');
-          } else {
-            this.addMessage('ai', response);
-          }
-        })
-        .catch((error) => {
-          this.isAiTyping = false;
-          console.error('Error sending message:', error);
-          this.showError('Failed to send message. Please try again.');
-        });
-
-      sessionStorage.removeItem('chatData');
-    }
-
     // Add click listener with proper reference
     document.addEventListener('click', this.documentClickHandler);
+
+    // Restore message if there is one
+    const restoreMessage = sessionStorage.getItem('restoreMessage');
+    if (restoreMessage) {
+      // Wait for the chat input to be available
+      requestAnimationFrame(() => {
+        if (this.chatInput) {
+          this.chatInput.value = restoreMessage;
+          this.chatInput.focus();
+          // Remove the message from storage
+          sessionStorage.removeItem('restoreMessage');
+          // Automatically send the message
+          this.handleSend();
+        }
+      });
+    }
   }
 
   disconnectedCallback(): void {

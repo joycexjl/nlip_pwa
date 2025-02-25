@@ -678,50 +678,37 @@ export class PageHome extends SignalWatcher(PageElement) {
       return;
     }
 
-    try {
-      const result = await handleFileUpload(file);
-      this.showStatus(result.message, 'success');
-
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        if (e.target?.result) {
-          const chatInput = this.renderRoot?.querySelector(
-            '.chat-input'
-          ) as HTMLTextAreaElement;
-          if (chatInput) {
-            if (!chatInput.value.trim()) {
-              chatInput.value = 'What do you see in this image?';
-            }
-            chatInput.focus();
-            chatInput.setSelectionRange(
-              chatInput.value.length,
-              chatInput.value.length
-            );
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      if (e.target?.result) {
+        const chatInput = this.renderRoot?.querySelector(
+          '.chat-input'
+        ) as HTMLTextAreaElement;
+        if (chatInput) {
+          if (!chatInput.value.trim()) {
+            chatInput.value = 'What do you see in this image?';
           }
-
-          this.previewImage = e.target.result as string;
-          this.previewDocumentName = null;
-
-          sessionStorage.setItem(
-            'pendingImageData',
-            JSON.stringify({
-              data: e.target.result,
-              type: file.type,
-            })
+          chatInput.focus();
+          chatInput.setSelectionRange(
+            chatInput.value.length,
+            chatInput.value.length
           );
         }
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      console.error('Upload error:', error);
-      this.showStatus(
-        error instanceof Error
-          ? error.message
-          : 'Upload failed. Please try again.',
-        'error'
-      );
-      input.value = '';
-    }
+
+        this.previewImage = e.target.result as string;
+        this.previewDocumentName = null;
+
+        sessionStorage.setItem(
+          'pendingImageData',
+          JSON.stringify({
+            data: e.target.result,
+            type: file.type,
+          })
+        );
+      }
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
   }
 
   private async handleDocumentUpload(e: Event) {
@@ -730,64 +717,48 @@ export class PageHome extends SignalWatcher(PageElement) {
 
     if (!file) return;
 
-    try {
-      const result = await handleFileUpload(file);
-      this.showStatus(result.message, 'success');
+    // Reset the file input
+    if (this.documentInputRef.value) {
+      this.documentInputRef.value.value = '';
+    }
 
-      // Reset the file input
-      if (this.documentInputRef.value) {
-        this.documentInputRef.value.value = '';
+    // Set up the chat input and preview
+    const chatInput = this.renderRoot?.querySelector(
+      '.chat-input'
+    ) as HTMLTextAreaElement;
+    if (chatInput) {
+      if (!chatInput.value.trim()) {
+        chatInput.value = `Please analyze this document: ${file.name}`;
       }
+      chatInput.focus();
+      chatInput.setSelectionRange(
+        chatInput.value.length,
+        chatInput.value.length
+      );
+    }
 
-      // Set up the chat input and preview
-      const chatInput = this.renderRoot?.querySelector(
-        '.chat-input'
-      ) as HTMLTextAreaElement;
-      if (chatInput) {
-        if (!chatInput.value.trim()) {
-          chatInput.value = `Please analyze this document: ${file.name}`;
-        }
-        chatInput.focus();
-        chatInput.setSelectionRange(
-          chatInput.value.length,
-          chatInput.value.length
+    // Set preview document name
+    this.previewDocumentName = file.name;
+    this.previewImage = null;
+
+    // Store the file information for later use
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      if (e.target?.result) {
+        sessionStorage.setItem(
+          'pendingDocumentData',
+          JSON.stringify({
+            name: file.name,
+            type: file.type,
+          })
+        );
+        sessionStorage.setItem(
+          'pendingDocumentContent',
+          e.target.result as string
         );
       }
-
-      // Set preview document name
-      this.previewDocumentName = file.name;
-      this.previewImage = null;
-
-      // Store the file information for later use
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        if (e.target?.result) {
-          sessionStorage.setItem(
-            'pendingDocumentData',
-            JSON.stringify({
-              name: file.name,
-              type: file.type,
-            })
-          );
-          sessionStorage.setItem(
-            'pendingDocumentContent',
-            e.target.result as string
-          );
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      console.error('Upload error:', error);
-      this.showStatus(
-        error instanceof Error
-          ? error.message
-          : 'Upload failed. Please try again.',
-        'error'
-      );
-      if (this.documentInputRef.value) {
-        this.documentInputRef.value.value = '';
-      }
-    }
+    };
+    reader.readAsDataURL(file);
   }
 
   private showStatus(message: string, type: 'success' | 'error' | 'loading') {
