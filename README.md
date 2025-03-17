@@ -1,4 +1,3 @@
-[![CI](https://github.com/IBM/pwa-lit-template/workflows/CI/badge.svg)](https://github.com/IBM/pwa-lit-template/actions)
 [![Built with pwa-lit-template](https://img.shields.io/badge/built%20with-pwa--lit--template-blue)](https://github.com/IBM/pwa-lit-template 'Built with pwa-lit-template')
 
 # NLIP-PWA
@@ -41,10 +40,90 @@ Furthermore, this project is built on [TypeScript](https://www.typescriptlang.or
 
 ### Install the dependencies
 
-    npm install
+```bash
+npm install
+```
 
-### Start the development server
+### Running the Application
 
-This command serves the app at `http://localhost:8000`:
+The application consists of two parts: the client and the server. Both need to be running for full functionality, especially for the speech-to-text feature.
 
-    npm start
+#### 1. Start the server
+
+The server handles speech-to-text transcription and other API requests. To start the server:
+
+```bash
+cd server
+npm install  # Only needed the first time
+npm start
+```
+
+This will start the server on `http://localhost:3000`.
+
+#### 2. Start the client
+
+In a new terminal window, navigate to the project root and run:
+
+```bash
+npm start
+```
+
+This command serves the app at `http://localhost:8000`.
+
+### Building for production
+
+```bash
+npm run build
+```
+
+This will create a `dist` folder with the compiled application.
+
+## Features
+
+### Speech-to-Text Functionality
+
+The application includes speech-to-text functionality that allows users to input text by speaking. This feature is available on both the home page and the chat page.
+
+#### How to use Speech-to-Text:
+
+1. Look for the microphone button to the left of the text input field.
+2. Click the microphone button to start recording.
+3. Speak clearly into your microphone.
+4. Click the button again to stop recording.
+5. The application will process your speech and convert it to text in the input field.
+
+#### Requirements for Speech-to-Text:
+
+- A modern browser that supports the MediaRecorder API (Chrome, Firefox, Edge, Safari)
+- Microphone access (you'll be prompted to allow microphone access)
+- The server must be running to process the audio transcription
+
+#### Troubleshooting Speech-to-Text:
+
+- If the microphone button doesn't appear, your browser may not support the required APIs.
+- If you see an error about microphone access, make sure you've granted permission to use your microphone.
+- If transcription fails, ensure the server is running at `http://localhost:3000`.
+
+## Development
+
+### Project Structure
+
+- `src/` - Client-side source code
+  - `components/` - Web components
+  - `pages/` - Application pages
+  - `services/` - Service classes including speech-to-text
+- `server/` - Server-side code
+  - `src/` - Server source code
+  - `api/` - API endpoints
+  - `services/` - Server services including speech-to-text processing
+
+### Speech-to-Text Implementation
+
+The speech-to-text functionality is implemented using:
+
+1. **Client-side**: The `SpeechToTextService` class in `src/services/speech-to-text.ts` handles recording audio using the MediaRecorder API.
+2. **Server-side**: The transcription API endpoint in `server/src/api/transcribe.ts` processes the audio using Google Cloud Speech-to-Text API.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
