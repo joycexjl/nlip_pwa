@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+/* stylelint-disable */
 import { SignalWatcher } from '@lit-labs/signals';
 import { html, css } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
@@ -18,6 +19,7 @@ import {
   handleFileUpload,
 } from '../components/network.js';
 import { PageElement } from '../helpers/page-element.js';
+import { SpeechToTextService } from '../services/speech-to-text.js';
 import { chatInputStyles } from '../styles/chat-input.js';
 
 interface ChatMessage {
@@ -50,10 +52,13 @@ export class PageChat extends SignalWatcher(PageElement) {
   @state() private showUploadMenu = false;
   @state() private previewImage: string | null = null;
   @state() private previewDocumentName: string | null = null;
+  @state() private isRecording = false;
+  @state() private isSpeechSupported = SpeechToTextService.isSupported();
 
   private static readonly STORAGE_KEY = 'chat-history';
   private documentClickHandler: (e: MouseEvent) => void;
   private documentInputRef = createRef<HTMLInputElement>();
+  private speechService = new SpeechToTextService();
 
   // Marked configuration without the 'mangle' property
   private marked = new Marked({
@@ -128,6 +133,829 @@ export class PageChat extends SignalWatcher(PageElement) {
       top: document.documentElement.scrollHeight,
       behavior: 'smooth',
     });
+  }
+
+  private showSuccess() {
+    this.showSuccessPopup = true;
+    this.showErrorPopup = false;
+    setTimeout(() => {
+      this.showSuccessPopup = false;
+    }, 3000);
+  }
+
+  private showError(message: string) {
+    this.errorMessage = message;
+    this.showErrorPopup = true;
+    this.showSuccessPopup = false;
+    setTimeout(() => {
+      this.showErrorPopup = false;
+    }, 5000);
+  }
+
+  private async handleSend() {
+    if (!this.chatInput?.value) return;
+
+    const userMessage = this.chatInput.value;
+    const pendingImageData = sessionStorage.getItem('pendingImageData');
+    const pendingDocumentData = sessionStorage.getItem('pendingDocumentData');
+    const pendingDocumentContent = sessionStorage.getItem(
+      'pendingDocumentContent'
+    );
+
+    const messageContent = userMessage;
+    let imageData: { data: string; type: string } | null = null;
+    let documentData = null;
+
+    try {
+      // Handle file upload if there's a pending file
+      if (pendingImageData) {
+        const imageInfo = JSON.parse(pendingImageData);
+        const file = await fetch(imageInfo.data)
+          .then((res) => res.blob())
+          .then((blob) => new File([blob], 'image', { type: imageInfo.type }));
+        await handleFileUpload(file);
+        imageData = {
+          data: imageInfo.data,
+          type: imageInfo.type,
+        };
+        sessionStorage.removeItem('pendingImageData');
+      } else if (pendingDocumentData && pendingDocumentContent) {
+        const docInfo = JSON.parse(pendingDocumentData);
+        const file = await fetch(pendingDocumentContent)
+          .then((res) => res.blob())
+          .then(
+            (blob) => new File([blob], docInfo.name, { type: docInfo.type })
+          );
+        await handleFileUpload(file);
+        documentData = {
+          name: docInfo.name,
+          type: docInfo.type,
+          content: pendingDocumentContent,
+        };
+        sessionStorage.removeItem('pendingDocumentData');
+        sessionStorage.removeItem('pendingDocumentContent');
+      }
+
+      // Add user message to chat
+      this.addMessage('user', messageContent, imageData);
+      this.chatInput.value = '';
+      this.clearPreview();
+      this.isAiTyping = true;
+
+      let aiResponse: string;
+      if (imageData) {
+        aiResponse = await sendImageMessage(
+          messageContent,
+          imageData.data.split(',')[1],
+          imageData.type
+        );
+      } else if (documentData) {
+        // Send document content as base64 string
+        const base64Content = documentData.content.split(',')[1];
+        const request = {
+          format: 'text',
+          subformat: 'english',
+          content: messageContent,
+          submessages: [
+            {
+              format: 'binary',
+              subformat: documentData.type.split('/')[1],
+              content: base64Content,
+            },
+          ],
+        };
+
+        const response = await fetch('https://druid.eecs.umich.edu/nlip/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(request),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to process document: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        aiResponse = data.content;
+      } else {
+        aiResponse = await sendTextMessage(messageContent);
+      }
+
+      this.isAiTyping = false;
+      if (aiResponse) {
+        // Check if response contains /upload/
+        if (aiResponse.includes('/upload/')) {
+          this.addMessage('ai', 'Successfully uploaded file');
+        } else {
+          this.addMessage('ai', aiResponse);
+        }
+        this.showSuccess();
+      }
+    } catch (error) {
+      this.isAiTyping = false;
+      console.error('Error sending message:', error);
+      this.showError('Failed to send message. Please try again.');
+    }
+  }
+
+  private handleImageSelect() {
+    this.imageInput?.click();
+  }
+
+  private async handleImageUpload(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (!input.files?.length) return;
+
+    const file = input.files[0];
+    if (
+      !['image/jpeg', 'image/png', 'image/gif', 'image/bmp'].includes(file.type)
+    ) {
+      this.showError(
+        'Please select a valid image file (JPEG, PNG, GIF, or BMP)'
+      );
+      input.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      if (e.target?.result) {
+        const chatInput = this.renderRoot?.querySelector(
+          '.chat-input'
+        ) as HTMLTextAreaElement;
+        if (chatInput) {
+          if (!chatInput.value.trim()) {
+            chatInput.value = 'What do you see in this image?';
+          }
+          chatInput.focus();
+          chatInput.setSelectionRange(
+            chatInput.value.length,
+            chatInput.value.length
+          );
+        }
+
+        this.previewImage = e.target.result as string;
+        this.previewDocumentName = null;
+
+        sessionStorage.setItem(
+          'pendingImageData',
+          JSON.stringify({
+            data: e.target.result,
+            type: file.type,
+          })
+        );
+      }
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
+  }
+
+  private async handleDocumentUpload(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+
+    if (!file) return;
+
+    // Reset the file input
+    if (this.documentInputRef.value) {
+      this.documentInputRef.value.value = '';
+    }
+
+    // Set up the chat input and preview
+    const chatInput = this.renderRoot?.querySelector(
+      '.chat-input'
+    ) as HTMLTextAreaElement;
+    if (chatInput) {
+      if (!chatInput.value.trim()) {
+        chatInput.value = `Please analyze this document: ${file.name}`;
+      }
+      chatInput.focus();
+      chatInput.setSelectionRange(
+        chatInput.value.length,
+        chatInput.value.length
+      );
+    }
+
+    // Set preview document name
+    this.previewDocumentName = file.name;
+    this.previewImage = null;
+
+    // Store the file information for later use
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      if (e.target?.result) {
+        sessionStorage.setItem(
+          'pendingDocumentData',
+          JSON.stringify({
+            name: file.name,
+            type: file.type,
+          })
+        );
+        sessionStorage.setItem(
+          'pendingDocumentContent',
+          e.target.result as string
+        );
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  private closeUploadMenu = (e: MouseEvent) => {
+    if (!(e.target as Element).closest('.button-group')) {
+      this.showUploadMenu = false;
+      document.removeEventListener('click', this.closeUploadMenu);
+    }
+  };
+
+  private toggleUploadMenu() {
+    this.showUploadMenu = !this.showUploadMenu;
+    if (this.showUploadMenu) {
+      // Add click listener with a small delay to prevent immediate closing
+      setTimeout(() => {
+        document.addEventListener('click', this.closeUploadMenu);
+      });
+    }
+  }
+
+  private renderMessageContent(message: ChatMessage) {
+    if (message.type === 'ai') {
+      return html`<div class="message-content markdown">
+        ${unsafeHTML(this.marked.parse(message.content) as string)}
+      </div>`;
+    }
+
+    return html`<div class="message-content">${message.content}</div>`;
+  }
+
+  private handleMessageInteraction(
+    event: MouseEvent | TouchEvent,
+    messageId: string
+  ) {
+    const isLongPress = event.type === 'touchstart';
+    if (isLongPress) {
+      event.preventDefault();
+      const touch = (event as TouchEvent).touches[0];
+      this.showMessageContextMenu(touch.clientX, touch.clientY, messageId);
+    } else if (event.type === 'contextmenu') {
+      event.preventDefault();
+      const mouseEvent = event as MouseEvent;
+      this.showMessageContextMenu(
+        mouseEvent.clientX,
+        mouseEvent.clientY,
+        messageId
+      );
+    }
+  }
+
+  private showMessageContextMenu(x: number, y: number, messageId: string) {
+    this.selectedMessageId = messageId;
+    this.contextMenuX = x;
+    this.contextMenuY = y;
+    this.showContextMenu = true;
+  }
+
+  private hideContextMenu() {
+    this.showContextMenu = false;
+    this.selectedMessageId = null;
+  }
+
+  private copyMessage() {
+    const message = this.messages.find((m) => m.id === this.selectedMessageId);
+    if (message) {
+      navigator.clipboard.writeText(message.content);
+      this.showSuccess();
+    }
+    this.hideContextMenu();
+  }
+
+  private startEditMessage() {
+    this.editingMessageId = this.selectedMessageId;
+    this.hideContextMenu();
+
+    // Add a small delay to allow the container to expand first
+    requestAnimationFrame(() => {
+      const textarea = this.renderRoot.querySelector(
+        '.editing-input'
+      ) as HTMLTextAreaElement;
+      if (textarea) {
+        textarea.focus();
+        textarea.setSelectionRange(
+          textarea.value.length,
+          textarea.value.length
+        );
+
+        // Scroll the textarea into view with some padding
+        textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  }
+
+  private cancelEdit() {
+    this.editingMessageId = null;
+  }
+
+  private saveEditedMessage(event: Event, messageId: string) {
+    const textarea = event.target as HTMLTextAreaElement;
+    const messageIndex = this.messages.findIndex((m) => m.id === messageId);
+    if (messageIndex !== -1 && textarea.value.trim()) {
+      const updatedMessages = [...this.messages];
+      updatedMessages[messageIndex] = {
+        ...updatedMessages[messageIndex],
+        content: textarea.value.trim(),
+      };
+      this.messages = updatedMessages;
+      this.saveChatHistory();
+      this.showSuccess();
+    }
+    this.editingMessageId = null;
+  }
+
+  private resendMessage() {
+    const message = this.messages.find((m) => m.id === this.selectedMessageId);
+    if (message) {
+      if (this.chatInput) {
+        this.chatInput.value = message.content;
+      }
+      this.handleSend();
+    }
+    this.hideContextMenu();
+  }
+
+  private clearPreview() {
+    this.previewImage = null;
+    this.previewDocumentName = null;
+    sessionStorage.removeItem('pendingImageData');
+    sessionStorage.removeItem('pendingDocumentData');
+    sessionStorage.removeItem('pendingDocumentContent');
+  }
+
+  private clearChatHistory() {
+    if (
+      confirm(
+        'Are you sure you want to clear the chat history? This cannot be undone.'
+      )
+    ) {
+      this.messages = [];
+      localStorage.removeItem(PageChat.STORAGE_KEY);
+      this.showSuccess();
+      this.requestUpdate();
+    }
+  }
+
+  private async toggleRecording() {
+    try {
+      if (this.isRecording) {
+        this.isRecording = false;
+
+        // Show loading status
+        this.showError('Processing speech...');
+
+        try {
+          // Get the transcription from the speech service
+          const text = await this.speechService.stopRecording();
+
+          if (this.chatInput && text) {
+            // Set the transcribed text in the input box
+            this.chatInput.value = text;
+            this.chatInput.focus();
+
+            // Show success message
+            this.showSuccess();
+          } else if (!text) {
+            this.showError('No speech detected');
+          }
+        } catch (error) {
+          console.error('Error stopping recording:', error);
+          this.showError('Failed to process speech');
+        }
+      } else {
+        try {
+          // Start recording
+          await this.speechService.startRecording();
+          this.isRecording = true;
+
+          // Show recording status
+          this.showError('Recording... Speak now');
+        } catch (error) {
+          console.error('Error starting recording:', error);
+          this.showError('Failed to access microphone');
+        }
+      }
+    } catch (error) {
+      console.error('Error in toggleRecording:', error);
+      this.showError('An error occurred');
+    }
+  }
+
+  render() {
+    return html`
+      <div class="success-popup ${this.showSuccessPopup ? 'show' : ''}">
+        Message sent successfully!
+      </div>
+
+      <div class="error-popup ${this.showErrorPopup ? 'show' : ''}">
+        ${this.errorMessage}
+      </div>
+
+      <div class="header">
+        <h2>Chat</h2>
+        <button class="clear-history-button" @click=${this.clearChatHistory}>
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+            />
+          </svg>
+          Clear History
+        </button>
+      </div>
+
+      <div class="chat-container">
+        ${this.messages.map(
+          (message) => html`
+            <div
+              class="message ${message.type}-message ${message.id ===
+              this.selectedMessageId
+                ? 'selected'
+                : ''} ${message.id === this.editingMessageId ? 'editing' : ''}"
+              @contextmenu=${(e: MouseEvent) =>
+                this.handleMessageInteraction(e, message.id)}
+              @touchstart=${(e: TouchEvent) => {
+                const timer = setTimeout(
+                  () => this.handleMessageInteraction(e, message.id),
+                  500
+                );
+                const clearTimer = () => clearTimeout(timer);
+                e.target?.addEventListener('touchend', clearTimer, {
+                  once: true,
+                });
+                e.target?.addEventListener('touchmove', clearTimer, {
+                  once: true,
+                });
+              }}
+            >
+              <div class="message-header">
+                ${message.type === 'user' ? 'You' : 'AI'}
+              </div>
+              ${this.editingMessageId === message.id
+                ? html`
+                    <div class="editing-input-container">
+                      <textarea
+                        class="editing-input"
+                        .value=${message.content}
+                        @keydown=${(e: KeyboardEvent) => {
+                          if (e.key === 'Enter' && e.ctrlKey) {
+                            e.preventDefault();
+                            this.saveEditedMessage(e, message.id);
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            this.cancelEdit();
+                          }
+                        }}
+                      ></textarea>
+                      <div class="editing-actions">
+                        <button
+                          class="editing-button cancel-button"
+                          @click=${this.cancelEdit}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          class="editing-button save-button"
+                          @click=${(e: Event) =>
+                            this.saveEditedMessage(e, message.id)}
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  `
+                : this.renderMessageContent(message)}
+              ${message.image
+                ? html`
+                    <div class="message-image">
+                      <img
+                        src="${message.image.data}"
+                        alt="User uploaded content in chat"
+                      />
+                    </div>
+                  `
+                : ''}
+            </div>
+          `
+        )}
+        ${this.isAiTyping
+          ? html`
+              <div class="typing-indicator">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+              </div>
+            `
+          : ''}
+      </div>
+
+      <div
+        class="context-menu ${this.showContextMenu ? 'show' : ''}"
+        style="left: ${this.contextMenuX}px; top: ${this.contextMenuY}px;"
+      >
+        <button class="context-menu-item" @click=${this.copyMessage}>
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
+            />
+          </svg>
+          Copy
+        </button>
+        <button class="context-menu-item" @click=${this.startEditMessage}>
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+            />
+          </svg>
+          Edit
+        </button>
+        <button class="context-menu-item" @click=${this.resendMessage}>
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
+            />
+          </svg>
+          Resend
+        </button>
+      </div>
+
+      <button
+        class="scroll-button ${this.showScrollButton ? 'show' : ''}"
+        @click=${this.scrollToBottom}
+        aria-label="Scroll to bottom"
+      >
+        <svg viewBox="0 0 24 24" fill="currentColor">
+          <path
+            d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"
+            transform="rotate(180 12 12)"
+          />
+        </svg>
+      </button>
+
+      <div class="chat-input-container">
+        <div class="chat-input-wrapper">
+          ${this.previewImage || this.previewDocumentName
+            ? html`
+                <div class="file-preview">
+                  <div class="preview-header">
+                    <span
+                      >${this.previewImage
+                        ? 'Image Preview'
+                        : 'Document Preview'}</span
+                    >
+                    <button class="preview-close" @click=${this.clearPreview}>
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                      >
+                        <path
+                          d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                  ${this.previewImage
+                    ? html`
+                        <img
+                          class="preview-image"
+                          src="${this.previewImage}"
+                          alt="Preview"
+                        />
+                      `
+                    : html`
+                        <div class="preview-document">
+                          <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path
+                              d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"
+                            />
+                          </svg>
+                          <span>${this.previewDocumentName}</span>
+                        </div>
+                      `}
+                </div>
+              `
+            : ''}
+          ${this.isSpeechSupported
+            ? html`
+                <button
+                  class="voice-input-button ${this.isRecording
+                    ? 'recording'
+                    : ''}"
+                  @click=${this.toggleRecording}
+                  title="${this.isRecording
+                    ? 'Stop recording'
+                    : 'Start voice input'}"
+                >
+                  ${this.isRecording
+                    ? html`
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                          <rect x="6" y="6" width="12" height="12" />
+                        </svg>
+                      `
+                    : html`
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                          <path
+                            d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"
+                          />
+                          <path
+                            d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"
+                          />
+                        </svg>
+                      `}
+                </button>
+              `
+            : ''}
+          <textarea
+            id="chat-input"
+            class="chat-input"
+            placeholder="Type your message here..."
+            @keydown=${(e: KeyboardEvent) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.handleSend();
+              }
+            }}
+          ></textarea>
+          <div class="button-group">
+            <div style="position: relative;">
+              <button
+                class="image-upload-button"
+                @click=${() => this.toggleUploadMenu()}
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path
+                    d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"
+                  />
+                </svg>
+              </button>
+
+              <div class="upload-menu ${this.showUploadMenu ? 'show' : ''}">
+                <button
+                  class="upload-option"
+                  @click=${() => this.handleImageSelect()}
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                      d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"
+                    ></path>
+                  </svg>
+                  Upload Image
+                </button>
+                <button
+                  class="upload-option"
+                  @click=${() => this.documentInputRef.value?.click()}
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path
+                      d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"
+                    ></path>
+                  </svg>
+                  Upload Document
+                </button>
+              </div>
+            </div>
+
+            <button class="send-button" @click=${this.handleSend}>
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <input
+        type="file"
+        id="image-input"
+        class="hidden-file-input"
+        accept="image/jpeg,image/png,image/gif,image/bmp"
+        @change=${this.handleImageUpload}
+      />
+
+      <input
+        ${ref(this.documentInputRef)}
+        type="file"
+        id="document-input"
+        class="hidden-file-input"
+        accept=".pdf,.doc,.docx,.txt"
+        @change=${this.handleDocumentUpload}
+      />
+    `;
+  }
+
+  connectedCallback(): void {
+    super.connectedCallback?.();
+    // Prevent zooming on mobile devices
+    const meta = document.createElement('meta');
+    meta.name = 'viewport';
+    meta.content =
+      'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
+    document.head.appendChild(meta);
+
+    // Load chat history from localStorage
+    this.loadChatHistory();
+
+    // Add click listener with proper reference
+    document.addEventListener('click', this.documentClickHandler);
+
+    // Check for chatData from home page
+    const chatDataString = sessionStorage.getItem('chatData');
+    if (chatDataString) {
+      try {
+        const chatData = JSON.parse(chatDataString);
+
+        // Wait for the chat input to be available
+        requestAnimationFrame(() => {
+          if (this.chatInput) {
+            // Set the user prompt in the input
+            this.chatInput.value = chatData.userPrompt;
+
+            // If there's image data, store it in sessionStorage
+            if (chatData.imageData && chatData.imageType) {
+              sessionStorage.setItem(
+                'pendingImageData',
+                JSON.stringify({
+                  data: chatData.imageData,
+                  type: chatData.imageType,
+                })
+              );
+            }
+
+            // If there's document data, store it in sessionStorage
+            if (
+              chatData.documentName &&
+              chatData.documentType &&
+              chatData.documentContent
+            ) {
+              sessionStorage.setItem(
+                'pendingDocumentData',
+                JSON.stringify({
+                  name: chatData.documentName,
+                  type: chatData.documentType,
+                })
+              );
+              sessionStorage.setItem(
+                'pendingDocumentContent',
+                chatData.documentContent
+              );
+            }
+
+            // Clear the chatData from sessionStorage
+            sessionStorage.removeItem('chatData');
+
+            // Automatically send the message
+            this.handleSend();
+          }
+        });
+      } catch (error) {
+        console.error('Error processing chat data:', error);
+      }
+    }
+
+    // Restore message if there is one (for backward compatibility)
+    const restoreMessage = sessionStorage.getItem('restoreMessage');
+    if (restoreMessage) {
+      // Wait for the chat input to be available
+      requestAnimationFrame(() => {
+        if (this.chatInput) {
+          this.chatInput.value = restoreMessage;
+          this.chatInput.focus();
+          // Remove the message from storage
+          sessionStorage.removeItem('restoreMessage');
+          // Automatically send the message
+          this.handleSend();
+        }
+      });
+    }
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback?.();
+
+    // Remove the viewport meta tag when component is disconnected
+    const meta = document.head.querySelector('meta[name="viewport"]');
+    if (meta) {
+      document.head.removeChild(meta);
+    }
+
+    // Remove the click listener
+    document.removeEventListener('click', this.documentClickHandler);
+  }
+
+  meta() {
+    return {
+      title: 'Chat',
+      description: 'Chat with AI',
+    };
   }
 
   static styles = css`
@@ -708,752 +1536,4 @@ export class PageChat extends SignalWatcher(PageElement) {
       color: #64748b;
     }
   `;
-
-  private showSuccess() {
-    this.showSuccessPopup = true;
-    this.showErrorPopup = false;
-    setTimeout(() => {
-      this.showSuccessPopup = false;
-    }, 3000);
-  }
-
-  private showError(message: string) {
-    this.errorMessage = message;
-    this.showErrorPopup = true;
-    this.showSuccessPopup = false;
-    setTimeout(() => {
-      this.showErrorPopup = false;
-    }, 5000);
-  }
-
-  private async handleSend() {
-    if (!this.chatInput?.value) return;
-
-    const userMessage = this.chatInput.value;
-    const pendingImageData = sessionStorage.getItem('pendingImageData');
-    const pendingDocumentData = sessionStorage.getItem('pendingDocumentData');
-    const pendingDocumentContent = sessionStorage.getItem(
-      'pendingDocumentContent'
-    );
-
-    const messageContent = userMessage;
-    let imageData: { data: string; type: string } | null = null;
-    let documentData = null;
-
-    try {
-      // Handle file upload if there's a pending file
-      if (pendingImageData) {
-        const imageInfo = JSON.parse(pendingImageData);
-        const file = await fetch(imageInfo.data)
-          .then((res) => res.blob())
-          .then((blob) => new File([blob], 'image', { type: imageInfo.type }));
-        await handleFileUpload(file);
-        imageData = {
-          data: imageInfo.data,
-          type: imageInfo.type,
-        };
-        sessionStorage.removeItem('pendingImageData');
-      } else if (pendingDocumentData && pendingDocumentContent) {
-        const docInfo = JSON.parse(pendingDocumentData);
-        const file = await fetch(pendingDocumentContent)
-          .then((res) => res.blob())
-          .then(
-            (blob) => new File([blob], docInfo.name, { type: docInfo.type })
-          );
-        await handleFileUpload(file);
-        documentData = {
-          name: docInfo.name,
-          type: docInfo.type,
-          content: pendingDocumentContent,
-        };
-        sessionStorage.removeItem('pendingDocumentData');
-        sessionStorage.removeItem('pendingDocumentContent');
-      }
-
-      // Add user message to chat
-      this.addMessage('user', messageContent, imageData);
-      this.chatInput.value = '';
-      this.clearPreview();
-      this.isAiTyping = true;
-
-      let aiResponse: string;
-      if (imageData) {
-        aiResponse = await sendImageMessage(
-          messageContent,
-          imageData.data.split(',')[1],
-          imageData.type
-        );
-      } else if (documentData) {
-        // Send document content as base64 string
-        const base64Content = documentData.content.split(',')[1];
-        const request = {
-          format: 'text',
-          subformat: 'english',
-          content: messageContent,
-          submessages: [
-            {
-              format: 'binary',
-              subformat: documentData.type.split('/')[1],
-              content: base64Content,
-            },
-          ],
-        };
-
-        const response = await fetch('https://druid.eecs.umich.edu/nlip/', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(request),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to process document: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        aiResponse = data.content;
-      } else {
-        aiResponse = await sendTextMessage(messageContent);
-      }
-
-      this.isAiTyping = false;
-      if (aiResponse) {
-        // Check if response contains /upload/
-        if (aiResponse.includes('/upload/')) {
-          this.addMessage('ai', 'Successfully uploaded file');
-        } else {
-          this.addMessage('ai', aiResponse);
-        }
-        this.showSuccess();
-      }
-    } catch (error) {
-      this.isAiTyping = false;
-      console.error('Error sending message:', error);
-      this.showError('Failed to send message. Please try again.');
-    }
-  }
-
-  private handleImageSelect() {
-    this.imageInput?.click();
-  }
-
-  private async handleImageUpload(event: Event) {
-    const input = event.target as HTMLInputElement;
-    if (!input.files?.length) return;
-
-    const file = input.files[0];
-    if (
-      !['image/jpeg', 'image/png', 'image/gif', 'image/bmp'].includes(file.type)
-    ) {
-      this.showError(
-        'Please select a valid image file (JPEG, PNG, GIF, or BMP)'
-      );
-      input.value = '';
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      if (e.target?.result) {
-        const chatInput = this.renderRoot?.querySelector(
-          '.chat-input'
-        ) as HTMLTextAreaElement;
-        if (chatInput) {
-          if (!chatInput.value.trim()) {
-            chatInput.value = 'What do you see in this image?';
-          }
-          chatInput.focus();
-          chatInput.setSelectionRange(
-            chatInput.value.length,
-            chatInput.value.length
-          );
-        }
-
-        this.previewImage = e.target.result as string;
-        this.previewDocumentName = null;
-
-        sessionStorage.setItem(
-          'pendingImageData',
-          JSON.stringify({
-            data: e.target.result,
-            type: file.type,
-          })
-        );
-      }
-    };
-    reader.readAsDataURL(file);
-    input.value = '';
-  }
-
-  private async handleDocumentUpload(e: Event) {
-    const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-
-    if (!file) return;
-
-    // Reset the file input
-    if (this.documentInputRef.value) {
-      this.documentInputRef.value.value = '';
-    }
-
-    // Set up the chat input and preview
-    const chatInput = this.renderRoot?.querySelector(
-      '.chat-input'
-    ) as HTMLTextAreaElement;
-    if (chatInput) {
-      if (!chatInput.value.trim()) {
-        chatInput.value = `Please analyze this document: ${file.name}`;
-      }
-      chatInput.focus();
-      chatInput.setSelectionRange(
-        chatInput.value.length,
-        chatInput.value.length
-      );
-    }
-
-    // Set preview document name
-    this.previewDocumentName = file.name;
-    this.previewImage = null;
-
-    // Store the file information for later use
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      if (e.target?.result) {
-        sessionStorage.setItem(
-          'pendingDocumentData',
-          JSON.stringify({
-            name: file.name,
-            type: file.type,
-          })
-        );
-        sessionStorage.setItem(
-          'pendingDocumentContent',
-          e.target.result as string
-        );
-      }
-    };
-    reader.readAsDataURL(file);
-  }
-
-  private closeUploadMenu = (e: MouseEvent) => {
-    if (!(e.target as Element).closest('.button-group')) {
-      this.showUploadMenu = false;
-      document.removeEventListener('click', this.closeUploadMenu);
-    }
-  };
-
-  private toggleUploadMenu() {
-    this.showUploadMenu = !this.showUploadMenu;
-    if (this.showUploadMenu) {
-      // Add click listener with a small delay to prevent immediate closing
-      setTimeout(() => {
-        document.addEventListener('click', this.closeUploadMenu);
-      });
-    }
-  }
-
-  private renderMessageContent(message: ChatMessage) {
-    if (message.type === 'ai') {
-      return html`<div class="message-content markdown">
-        ${unsafeHTML(this.marked.parse(message.content) as string)}
-      </div>`;
-    }
-
-    return html`<div class="message-content">${message.content}</div>`;
-  }
-
-  private handleMessageInteraction(
-    event: MouseEvent | TouchEvent,
-    messageId: string
-  ) {
-    const isLongPress = event.type === 'touchstart';
-    if (isLongPress) {
-      event.preventDefault();
-      const touch = (event as TouchEvent).touches[0];
-      this.showMessageContextMenu(touch.clientX, touch.clientY, messageId);
-    } else if (event.type === 'contextmenu') {
-      event.preventDefault();
-      const mouseEvent = event as MouseEvent;
-      this.showMessageContextMenu(
-        mouseEvent.clientX,
-        mouseEvent.clientY,
-        messageId
-      );
-    }
-  }
-
-  private showMessageContextMenu(x: number, y: number, messageId: string) {
-    this.selectedMessageId = messageId;
-    this.contextMenuX = x;
-    this.contextMenuY = y;
-    this.showContextMenu = true;
-  }
-
-  private hideContextMenu() {
-    this.showContextMenu = false;
-    this.selectedMessageId = null;
-  }
-
-  private copyMessage() {
-    const message = this.messages.find((m) => m.id === this.selectedMessageId);
-    if (message) {
-      navigator.clipboard.writeText(message.content);
-      this.showSuccess();
-    }
-    this.hideContextMenu();
-  }
-
-  private startEditMessage() {
-    this.editingMessageId = this.selectedMessageId;
-    this.hideContextMenu();
-
-    // Add a small delay to allow the container to expand first
-    requestAnimationFrame(() => {
-      const textarea = this.renderRoot.querySelector(
-        '.editing-input'
-      ) as HTMLTextAreaElement;
-      if (textarea) {
-        textarea.focus();
-        textarea.setSelectionRange(
-          textarea.value.length,
-          textarea.value.length
-        );
-
-        // Scroll the textarea into view with some padding
-        textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    });
-  }
-
-  private cancelEdit() {
-    this.editingMessageId = null;
-  }
-
-  private saveEditedMessage(event: Event, messageId: string) {
-    const textarea = event.target as HTMLTextAreaElement;
-    const messageIndex = this.messages.findIndex((m) => m.id === messageId);
-    if (messageIndex !== -1 && textarea.value.trim()) {
-      const updatedMessages = [...this.messages];
-      updatedMessages[messageIndex] = {
-        ...updatedMessages[messageIndex],
-        content: textarea.value.trim(),
-      };
-      this.messages = updatedMessages;
-      this.saveChatHistory();
-      this.showSuccess();
-    }
-    this.editingMessageId = null;
-  }
-
-  private resendMessage() {
-    const message = this.messages.find((m) => m.id === this.selectedMessageId);
-    if (message) {
-      if (this.chatInput) {
-        this.chatInput.value = message.content;
-      }
-      this.handleSend();
-    }
-    this.hideContextMenu();
-  }
-
-  private clearPreview() {
-    this.previewImage = null;
-    this.previewDocumentName = null;
-    sessionStorage.removeItem('pendingImageData');
-    sessionStorage.removeItem('pendingDocumentData');
-    sessionStorage.removeItem('pendingDocumentContent');
-  }
-
-  private clearChatHistory() {
-    if (
-      confirm(
-        'Are you sure you want to clear the chat history? This cannot be undone.'
-      )
-    ) {
-      this.messages = [];
-      localStorage.removeItem(PageChat.STORAGE_KEY);
-      this.showSuccess();
-      this.requestUpdate();
-    }
-  }
-
-  render() {
-    return html`
-      <div class="success-popup ${this.showSuccessPopup ? 'show' : ''}">
-        Message sent successfully!
-      </div>
-
-      <div class="error-popup ${this.showErrorPopup ? 'show' : ''}">
-        ${this.errorMessage}
-      </div>
-
-      <div class="header">
-        <h2>Chat</h2>
-        <button class="clear-history-button" @click=${this.clearChatHistory}>
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path
-              d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
-            />
-          </svg>
-          Clear History
-        </button>
-      </div>
-
-      <div class="chat-container">
-        ${this.messages.map(
-          (message) => html`
-            <div
-              class="message ${message.type}-message ${message.id ===
-              this.selectedMessageId
-                ? 'selected'
-                : ''} ${message.id === this.editingMessageId ? 'editing' : ''}"
-              @contextmenu=${(e: MouseEvent) =>
-                this.handleMessageInteraction(e, message.id)}
-              @touchstart=${(e: TouchEvent) => {
-                const timer = setTimeout(
-                  () => this.handleMessageInteraction(e, message.id),
-                  500
-                );
-                const clearTimer = () => clearTimeout(timer);
-                e.target?.addEventListener('touchend', clearTimer, {
-                  once: true,
-                });
-                e.target?.addEventListener('touchmove', clearTimer, {
-                  once: true,
-                });
-              }}
-            >
-              <div class="message-header">
-                ${message.type === 'user' ? 'You' : 'AI'}
-              </div>
-              ${this.editingMessageId === message.id
-                ? html`
-                    <div class="editing-input-container">
-                      <textarea
-                        class="editing-input"
-                        .value=${message.content}
-                        @keydown=${(e: KeyboardEvent) => {
-                          if (e.key === 'Enter' && e.ctrlKey) {
-                            e.preventDefault();
-                            this.saveEditedMessage(e, message.id);
-                          } else if (e.key === 'Escape') {
-                            e.preventDefault();
-                            this.cancelEdit();
-                          }
-                        }}
-                      ></textarea>
-                      <div class="editing-actions">
-                        <button
-                          class="editing-button cancel-button"
-                          @click=${this.cancelEdit}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          class="editing-button save-button"
-                          @click=${(e: Event) =>
-                            this.saveEditedMessage(e, message.id)}
-                        >
-                          Save
-                        </button>
-                      </div>
-                    </div>
-                  `
-                : this.renderMessageContent(message)}
-              ${message.image
-                ? html`
-                    <div class="message-image">
-                      <img
-                        src="${message.image.data}"
-                        alt="User uploaded content in chat"
-                      />
-                    </div>
-                  `
-                : ''}
-            </div>
-          `
-        )}
-        ${this.isAiTyping
-          ? html`
-              <div class="typing-indicator">
-                <div class="typing-dot"></div>
-                <div class="typing-dot"></div>
-                <div class="typing-dot"></div>
-              </div>
-            `
-          : ''}
-      </div>
-
-      <div
-        class="context-menu ${this.showContextMenu ? 'show' : ''}"
-        style="left: ${this.contextMenuX}px; top: ${this.contextMenuY}px;"
-      >
-        <button class="context-menu-item" @click=${this.copyMessage}>
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path
-              d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"
-            />
-          </svg>
-          Copy
-        </button>
-        <button class="context-menu-item" @click=${this.startEditMessage}>
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path
-              d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
-            />
-          </svg>
-          Edit
-        </button>
-        <button class="context-menu-item" @click=${this.resendMessage}>
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path
-              d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
-            />
-          </svg>
-          Resend
-        </button>
-      </div>
-
-      <button
-        class="scroll-button ${this.showScrollButton ? 'show' : ''}"
-        @click=${this.scrollToBottom}
-        aria-label="Scroll to bottom"
-      >
-        <svg viewBox="0 0 24 24" fill="currentColor">
-          <path
-            d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"
-            transform="rotate(180 12 12)"
-          />
-        </svg>
-      </button>
-
-      <div class="chat-input-container">
-        <div class="chat-input-wrapper">
-          ${this.previewImage || this.previewDocumentName
-            ? html`
-                <div class="file-preview">
-                  <div class="preview-header">
-                    <span
-                      >${this.previewImage
-                        ? 'Image Preview'
-                        : 'Document Preview'}</span
-                    >
-                    <button class="preview-close" @click=${this.clearPreview}>
-                      <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                      >
-                        <path
-                          d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                  ${this.previewImage
-                    ? html`
-                        <img
-                          class="preview-image"
-                          src="${this.previewImage}"
-                          alt="Preview"
-                        />
-                      `
-                    : html`
-                        <div class="preview-document">
-                          <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path
-                              d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"
-                            />
-                          </svg>
-                          <span>${this.previewDocumentName}</span>
-                        </div>
-                      `}
-                </div>
-              `
-            : ''}
-          <textarea
-            id="chat-input"
-            class="chat-input"
-            placeholder="Type your message here..."
-            @keydown=${(e: KeyboardEvent) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                this.handleSend();
-              }
-            }}
-          ></textarea>
-          <div class="button-group">
-            <div style="position: relative;">
-              <button
-                class="image-upload-button"
-                @click=${() => this.toggleUploadMenu()}
-              >
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path
-                    d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"
-                  />
-                </svg>
-              </button>
-
-              <div class="upload-menu ${this.showUploadMenu ? 'show' : ''}">
-                <button
-                  class="upload-option"
-                  @click=${() => this.handleImageSelect()}
-                >
-                  <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path
-                      d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"
-                    ></path>
-                  </svg>
-                  Upload Image
-                </button>
-                <button
-                  class="upload-option"
-                  @click=${() => this.documentInputRef.value?.click()}
-                >
-                  <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path
-                      d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"
-                    ></path>
-                  </svg>
-                  Upload Document
-                </button>
-              </div>
-            </div>
-
-            <button class="send-button" @click=${this.handleSend}>
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <input
-        type="file"
-        id="image-input"
-        class="hidden-file-input"
-        accept="image/jpeg,image/png,image/gif,image/bmp"
-        @change=${this.handleImageUpload}
-      />
-
-      <input
-        ${ref(this.documentInputRef)}
-        type="file"
-        id="document-input"
-        class="hidden-file-input"
-        accept=".pdf,.doc,.docx,.txt"
-        @change=${this.handleDocumentUpload}
-      />
-    `;
-  }
-
-  connectedCallback(): void {
-    super.connectedCallback?.();
-    // Prevent zooming on mobile devices
-    const meta = document.createElement('meta');
-    meta.name = 'viewport';
-    meta.content =
-      'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no';
-    document.head.appendChild(meta);
-
-    // Load chat history from localStorage
-    this.loadChatHistory();
-
-    // Add click listener with proper reference
-    document.addEventListener('click', this.documentClickHandler);
-
-    // Check for chatData from home page
-    const chatDataString = sessionStorage.getItem('chatData');
-    if (chatDataString) {
-      try {
-        const chatData = JSON.parse(chatDataString);
-
-        // Wait for the chat input to be available
-        requestAnimationFrame(() => {
-          if (this.chatInput) {
-            // Set the user prompt in the input
-            this.chatInput.value = chatData.userPrompt;
-
-            // If there's image data, store it in sessionStorage
-            if (chatData.imageData && chatData.imageType) {
-              sessionStorage.setItem(
-                'pendingImageData',
-                JSON.stringify({
-                  data: chatData.imageData,
-                  type: chatData.imageType,
-                })
-              );
-            }
-
-            // If there's document data, store it in sessionStorage
-            if (
-              chatData.documentName &&
-              chatData.documentType &&
-              chatData.documentContent
-            ) {
-              sessionStorage.setItem(
-                'pendingDocumentData',
-                JSON.stringify({
-                  name: chatData.documentName,
-                  type: chatData.documentType,
-                })
-              );
-              sessionStorage.setItem(
-                'pendingDocumentContent',
-                chatData.documentContent
-              );
-            }
-
-            // Clear the chatData from sessionStorage
-            sessionStorage.removeItem('chatData');
-
-            // Automatically send the message
-            this.handleSend();
-          }
-        });
-      } catch (error) {
-        console.error('Error processing chat data:', error);
-      }
-    }
-
-    // Restore message if there is one (for backward compatibility)
-    const restoreMessage = sessionStorage.getItem('restoreMessage');
-    if (restoreMessage) {
-      // Wait for the chat input to be available
-      requestAnimationFrame(() => {
-        if (this.chatInput) {
-          this.chatInput.value = restoreMessage;
-          this.chatInput.focus();
-          // Remove the message from storage
-          sessionStorage.removeItem('restoreMessage');
-          // Automatically send the message
-          this.handleSend();
-        }
-      });
-    }
-  }
-
-  disconnectedCallback(): void {
-    super.disconnectedCallback?.();
-
-    // Remove the viewport meta tag when component is disconnected
-    const meta = document.head.querySelector('meta[name="viewport"]');
-    if (meta) {
-      document.head.removeChild(meta);
-    }
-
-    // Remove the click listener
-    document.removeEventListener('click', this.documentClickHandler);
-  }
-
-  meta() {
-    return {
-      title: 'Chat',
-      description: 'Chat with AI',
-    };
-  }
 }

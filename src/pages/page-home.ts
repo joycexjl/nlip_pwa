@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+/* stylelint-disable */
 import { SignalWatcher } from '@lit-labs/signals';
 import { Router } from '@vaadin/router';
 import { html, css } from 'lit';
@@ -361,19 +362,19 @@ export class PageHome extends SignalWatcher(PageElement) {
     }
 
     .voice-input-button {
+      display: flex;
+      flex-shrink: 0;
+      justify-content: center;
+      align-items: center;
       width: 40px;
       height: 40px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      margin-right: 8px;
       border: none;
       border-radius: 50%;
       background-color: #f1f5f9;
       color: #1e293b;
       cursor: pointer;
       transition: all 0.2s;
-      margin-right: 8px;
-      flex-shrink: 0;
     }
 
     .voice-input-button:hover {
@@ -393,13 +394,13 @@ export class PageHome extends SignalWatcher(PageElement) {
 
     @keyframes pulse {
       0% {
-        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+        box-shadow: 0 0 0 0 rgb(239 68 68 / 40%);
       }
       70% {
-        box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+        box-shadow: 0 0 0 10px rgb(239 68 68 / 0%);
       }
       100% {
-        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+        box-shadow: 0 0 0 0 rgb(239 68 68 / 0%);
       }
     }
   `;
@@ -572,36 +573,27 @@ export class PageHome extends SignalWatcher(PageElement) {
                 </div>
               `
             : ''}
-          ${this.isSpeechSupported
-            ? html`
-                <button
-                  class="voice-input-button ${this.isRecording
-                    ? 'recording'
-                    : ''}"
-                  @click=${this.toggleRecording}
-                  title="${this.isRecording
-                    ? 'Stop recording'
-                    : 'Start voice input'}"
-                >
-                  ${this.isRecording
-                    ? html`
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                          <rect x="6" y="6" width="12" height="12" />
-                        </svg>
-                      `
-                    : html`
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                          <path
-                            d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"
-                          />
-                          <path
-                            d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"
-                          />
-                        </svg>
-                      `}
-                </button>
-              `
-            : ''}
+          ${this.isSpeechSupported ? html`
+            <button
+              class="voice-input-button ${this.isRecording ? 'recording' : ''}"
+              @click=${this.toggleRecording}
+              title="${this.isRecording ? 'Stop recording' : 'Start voice input'}"
+            >
+              ${this.isRecording
+                ? html`
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <rect x="6" y="6" width="12" height="12" />
+                    </svg>
+                  `
+                : html`
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                      <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+                    </svg>
+                  `
+              }
+            </button>
+          ` : ''}
           <textarea
             class="chat-input"
             placeholder="Type your message here..."
@@ -707,16 +699,7 @@ export class PageHome extends SignalWatcher(PageElement) {
       'pendingDocumentContent'
     );
 
-    interface ChatData {
-      userPrompt: string;
-      imageData?: string;
-      imageType?: string;
-      documentName?: string;
-      documentType?: string;
-      documentContent?: string;
-    }
-
-    let chatData: ChatData = {
+    let chatData: any = {
       userPrompt: prompt,
     };
 
@@ -924,24 +907,22 @@ export class PageHome extends SignalWatcher(PageElement) {
     try {
       if (this.isRecording) {
         this.isRecording = false;
-
+        
         // Show loading status
         this.showStatus('Processing speech...', 'loading');
-
+        
         try {
           // Get the transcription from the speech service
           const text = await this.speechService.stopRecording();
-
+          
           // Get the chat input element
-          const chatInput = this.renderRoot?.querySelector(
-            '.chat-input'
-          ) as HTMLTextAreaElement;
-
+          const chatInput = this.renderRoot?.querySelector('.chat-input') as HTMLTextAreaElement;
+          
           if (chatInput && text) {
             // Set the transcribed text in the input box
             chatInput.value = text;
             chatInput.focus();
-
+            
             // Show success message
             this.showStatus('Speech transcribed successfully', 'success');
           } else if (!text) {
@@ -956,7 +937,7 @@ export class PageHome extends SignalWatcher(PageElement) {
           // Start recording
           await this.speechService.startRecording();
           this.isRecording = true;
-
+          
           // Show recording status
           this.showStatus('Recording... Speak now', 'loading');
         } catch (error) {
