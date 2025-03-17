@@ -11,8 +11,9 @@ import { html, css } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import { ref, createRef } from 'lit/directives/ref.js';
 
-import { handleFileUpload, sendTextMessage } from '../components/network.js';
+import { handleFileUpload } from '../components/network.js';
 import { PageElement } from '../helpers/page-element.js';
+import { SpeechToTextService } from '../services/speech-to-text.js';
 import { chatInputStyles } from '../styles/chat-input.js';
 
 @customElement('page-home')
@@ -25,8 +26,11 @@ export class PageHome extends SignalWatcher(PageElement) {
   @state() private statusType: 'success' | 'error' | 'loading' | '' = '';
   @state() private previewImage: string | null = null;
   @state() private previewDocumentName: string | null = null;
+  @state() private isRecording = false;
+  @state() private isSpeechSupported = SpeechToTextService.isSupported();
 
   private documentInputRef = createRef<HTMLInputElement>();
+  private speechService = new SpeechToTextService();
 
   static styles = css`
     ${chatInputStyles}
@@ -351,6 +355,53 @@ export class PageHome extends SignalWatcher(PageElement) {
       height: 24px;
       color: #64748b;
     }
+
+    .chat-input-wrapper {
+      position: relative;
+    }
+
+    .voice-input-button {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      border-radius: 50%;
+      background-color: #f1f5f9;
+      color: #1e293b;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-right: 8px;
+      flex-shrink: 0;
+    }
+
+    .voice-input-button:hover {
+      background-color: #e2e8f0;
+    }
+
+    .voice-input-button.recording {
+      background-color: #ef4444;
+      color: white;
+      animation: pulse 1.5s infinite;
+    }
+
+    .voice-input-button svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    @keyframes pulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+      }
+      70% {
+        box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+      }
+    }
   `;
 
   render() {
@@ -521,6 +572,36 @@ export class PageHome extends SignalWatcher(PageElement) {
                 </div>
               `
             : ''}
+          ${this.isSpeechSupported
+            ? html`
+                <button
+                  class="voice-input-button ${this.isRecording
+                    ? 'recording'
+                    : ''}"
+                  @click=${this.toggleRecording}
+                  title="${this.isRecording
+                    ? 'Stop recording'
+                    : 'Start voice input'}"
+                >
+                  ${this.isRecording
+                    ? html`
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                          <rect x="6" y="6" width="12" height="12" />
+                        </svg>
+                      `
+                    : html`
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                          <path
+                            d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"
+                          />
+                          <path
+                            d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"
+                          />
+                        </svg>
+                      `}
+                </button>
+              `
+            : ''}
           <textarea
             class="chat-input"
             placeholder="Type your message here..."
@@ -626,7 +707,16 @@ export class PageHome extends SignalWatcher(PageElement) {
       'pendingDocumentContent'
     );
 
-    let chatData: any = {
+    interface ChatData {
+      userPrompt: string;
+      imageData?: string;
+      imageType?: string;
+      documentName?: string;
+      documentType?: string;
+      documentContent?: string;
+    }
+
+    let chatData: ChatData = {
       userPrompt: prompt,
     };
 
@@ -655,11 +745,15 @@ export class PageHome extends SignalWatcher(PageElement) {
   }
 
   private handleImageSelect() {
-    this.imageInput?.click();
+    if (this.imageInput) {
+      this.imageInput.click();
+    }
   }
 
   private handleDocumentSelect() {
-    this.documentInputRef.value?.click();
+    if (this.documentInputRef.value) {
+      this.documentInputRef.value.click();
+    }
   }
 
   private async handleImageUpload(event: Event) {
@@ -678,36 +772,49 @@ export class PageHome extends SignalWatcher(PageElement) {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      if (e.target?.result) {
-        const chatInput = this.renderRoot?.querySelector(
-          '.chat-input'
-        ) as HTMLTextAreaElement;
-        if (chatInput) {
-          if (!chatInput.value.trim()) {
-            chatInput.value = 'What do you see in this image?';
+    try {
+      const result = await handleFileUpload(file);
+      this.showStatus(result.message || 'Upload successful', 'success');
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        if (e.target?.result) {
+          const chatInput = this.renderRoot?.querySelector(
+            '.chat-input'
+          ) as HTMLTextAreaElement;
+          if (chatInput) {
+            if (!chatInput.value.trim()) {
+              chatInput.value = 'What do you see in this image?';
+            }
+            chatInput.focus();
+            chatInput.setSelectionRange(
+              chatInput.value.length,
+              chatInput.value.length
+            );
           }
-          chatInput.focus();
-          chatInput.setSelectionRange(
-            chatInput.value.length,
-            chatInput.value.length
+
+          this.previewImage = e.target.result as string;
+          this.previewDocumentName = null;
+
+          sessionStorage.setItem(
+            'pendingImageData',
+            JSON.stringify({
+              data: e.target.result,
+              type: file.type,
+            })
           );
         }
-
-        this.previewImage = e.target.result as string;
-        this.previewDocumentName = null;
-
-        sessionStorage.setItem(
-          'pendingImageData',
-          JSON.stringify({
-            data: e.target.result,
-            type: file.type,
-          })
-        );
-      }
-    };
-    reader.readAsDataURL(file);
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Upload error:', error);
+      this.showStatus(
+        error instanceof Error
+          ? error.message
+          : 'Upload failed. Please try again.',
+        'error'
+      );
+    }
     input.value = '';
   }
 
@@ -717,48 +824,64 @@ export class PageHome extends SignalWatcher(PageElement) {
 
     if (!file) return;
 
-    // Reset the file input
-    if (this.documentInputRef.value) {
-      this.documentInputRef.value.value = '';
-    }
+    try {
+      const result = await handleFileUpload(file);
+      this.showStatus(result.message || 'Upload successful', 'success');
 
-    // Set up the chat input and preview
-    const chatInput = this.renderRoot?.querySelector(
-      '.chat-input'
-    ) as HTMLTextAreaElement;
-    if (chatInput) {
-      if (!chatInput.value.trim()) {
-        chatInput.value = `Please analyze this document: ${file.name}`;
+      // Reset the file input
+      if (this.documentInputRef.value) {
+        this.documentInputRef.value.value = '';
       }
-      chatInput.focus();
-      chatInput.setSelectionRange(
-        chatInput.value.length,
-        chatInput.value.length
+
+      // Set up the chat input and preview
+      const chatInput = this.renderRoot?.querySelector(
+        '.chat-input'
+      ) as HTMLTextAreaElement;
+      if (chatInput) {
+        if (!chatInput.value.trim()) {
+          chatInput.value = `Please analyze this document: ${file.name}`;
+        }
+        chatInput.focus();
+        chatInput.setSelectionRange(
+          chatInput.value.length,
+          chatInput.value.length
+        );
+      }
+
+      // Set preview document name
+      this.previewDocumentName = file.name;
+      this.previewImage = null;
+
+      // Store the file information for later use
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        if (e.target?.result) {
+          sessionStorage.setItem(
+            'pendingDocumentData',
+            JSON.stringify({
+              name: file.name,
+              type: file.type,
+            })
+          );
+          sessionStorage.setItem(
+            'pendingDocumentContent',
+            e.target.result as string
+          );
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Upload error:', error);
+      this.showStatus(
+        error instanceof Error
+          ? error.message
+          : 'Upload failed. Please try again.',
+        'error'
       );
-    }
-
-    // Set preview document name
-    this.previewDocumentName = file.name;
-    this.previewImage = null;
-
-    // Store the file information for later use
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      if (e.target?.result) {
-        sessionStorage.setItem(
-          'pendingDocumentData',
-          JSON.stringify({
-            name: file.name,
-            type: file.type,
-          })
-        );
-        sessionStorage.setItem(
-          'pendingDocumentContent',
-          e.target.result as string
-        );
+      if (this.documentInputRef.value) {
+        this.documentInputRef.value.value = '';
       }
-    };
-    reader.readAsDataURL(file);
+    }
   }
 
   private showStatus(message: string, type: 'success' | 'error' | 'loading') {
@@ -795,6 +918,56 @@ export class PageHome extends SignalWatcher(PageElement) {
     sessionStorage.removeItem('pendingImageData');
     sessionStorage.removeItem('pendingDocumentData');
     sessionStorage.removeItem('pendingDocumentContent');
+  }
+
+  private async toggleRecording() {
+    try {
+      if (this.isRecording) {
+        this.isRecording = false;
+
+        // Show loading status
+        this.showStatus('Processing speech...', 'loading');
+
+        try {
+          // Get the transcription from the speech service
+          const text = await this.speechService.stopRecording();
+
+          // Get the chat input element
+          const chatInput = this.renderRoot?.querySelector(
+            '.chat-input'
+          ) as HTMLTextAreaElement;
+
+          if (chatInput && text) {
+            // Set the transcribed text in the input box
+            chatInput.value = text;
+            chatInput.focus();
+
+            // Show success message
+            this.showStatus('Speech transcribed successfully', 'success');
+          } else if (!text) {
+            this.showStatus('No speech detected', 'error');
+          }
+        } catch (error) {
+          console.error('Error stopping recording:', error);
+          this.showStatus('Failed to process speech', 'error');
+        }
+      } else {
+        try {
+          // Start recording
+          await this.speechService.startRecording();
+          this.isRecording = true;
+
+          // Show recording status
+          this.showStatus('Recording... Speak now', 'loading');
+        } catch (error) {
+          console.error('Error starting recording:', error);
+          this.showStatus('Failed to access microphone', 'error');
+        }
+      }
+    } catch (error) {
+      console.error('Error in toggleRecording:', error);
+      this.showStatus('An error occurred', 'error');
+    }
   }
 
   meta() {

@@ -10,7 +10,9 @@ import replace from '@rollup/plugin-replace';
 import typescript from '@rollup/plugin-typescript';
 import { copy } from '@web/rollup-plugin-copy';
 import merge from 'deepmerge';
-import { black, blue, bgWhite } from 'picocolors';
+import pc from 'picocolors';
+
+const { black, blue, bgWhite } = pc;
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const DIST_PATH = 'server/dist/';

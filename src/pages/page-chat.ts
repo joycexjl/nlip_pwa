@@ -1366,7 +1366,61 @@ export class PageChat extends SignalWatcher(PageElement) {
     // Add click listener with proper reference
     document.addEventListener('click', this.documentClickHandler);
 
-    // Restore message if there is one
+    // Check for chatData from home page
+    const chatDataString = sessionStorage.getItem('chatData');
+    if (chatDataString) {
+      try {
+        const chatData = JSON.parse(chatDataString);
+
+        // Wait for the chat input to be available
+        requestAnimationFrame(() => {
+          if (this.chatInput) {
+            // Set the user prompt in the input
+            this.chatInput.value = chatData.userPrompt;
+
+            // If there's image data, store it in sessionStorage
+            if (chatData.imageData && chatData.imageType) {
+              sessionStorage.setItem(
+                'pendingImageData',
+                JSON.stringify({
+                  data: chatData.imageData,
+                  type: chatData.imageType,
+                })
+              );
+            }
+
+            // If there's document data, store it in sessionStorage
+            if (
+              chatData.documentName &&
+              chatData.documentType &&
+              chatData.documentContent
+            ) {
+              sessionStorage.setItem(
+                'pendingDocumentData',
+                JSON.stringify({
+                  name: chatData.documentName,
+                  type: chatData.documentType,
+                })
+              );
+              sessionStorage.setItem(
+                'pendingDocumentContent',
+                chatData.documentContent
+              );
+            }
+
+            // Clear the chatData from sessionStorage
+            sessionStorage.removeItem('chatData');
+
+            // Automatically send the message
+            this.handleSend();
+          }
+        });
+      } catch (error) {
+        console.error('Error processing chat data:', error);
+      }
+    }
+
+    // Restore message if there is one (for backward compatibility)
     const restoreMessage = sessionStorage.getItem('restoreMessage');
     if (restoreMessage) {
       // Wait for the chat input to be available
