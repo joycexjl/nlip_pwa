@@ -14,14 +14,64 @@ export const chatInputStyles = css`
     border-radius: 16px;
     background: white;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    z-index: 1000;
+    z-index: 100;
   }
 
   .chat-input-wrapper {
+    position: relative;
     display: flex;
     flex: 1;
     gap: 12px;
     align-items: center;
+  }
+
+  .chat-input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    background: #f8fafc;
+    color: #1e293b;
+    font-size: 16px;
+    transition: all 0.2s;
+    min-height: unset;
+    max-height: unset;
+    resize: none;
+    position: relative;
+  }
+
+  .chat-input-container.typing .chat-input {
+    border-color: #2563eb;
+    background: white;
+  }
+
+  .chat-input-container.typing .chat-input::after {
+    content: '';
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2px;
+    height: 20px;
+    background-color: #2563eb;
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  .chat-input:focus {
+    outline: none;
+    border-color: #2563eb;
+    background: white;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
+
+  .chat-input::placeholder {
+    color: #94a3b8;
   }
 
   .voice-input-button,
@@ -64,31 +114,6 @@ export const chatInputStyles = css`
     100% {
       transform: scale(1);
     }
-  }
-
-  .chat-input {
-    flex: 1;
-    padding: 12px 16px;
-    border: 2px solid #e2e8f0;
-    border-radius: 12px;
-    background: #f8fafc;
-    color: #1e293b;
-    font-size: 16px;
-    transition: all 0.2s;
-    min-height: unset;
-    max-height: unset;
-    resize: none;
-  }
-
-  .chat-input:focus {
-    outline: none;
-    border-color: #2563eb;
-    background: white;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-  }
-
-  .chat-input::placeholder {
-    color: #94a3b8;
   }
 
   .button-group {

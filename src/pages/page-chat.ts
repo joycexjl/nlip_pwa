@@ -7,6 +7,7 @@
 
 /* stylelint-disable */
 import { SignalWatcher } from '@lit-labs/signals';
+import { Router } from '@vaadin/router';
 import { html, css } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import { ref, createRef } from 'lit/directives/ref.js';
@@ -19,8 +20,8 @@ import {
   handleFileUpload,
 } from '../components/network.js';
 import { PageElement } from '../helpers/page-element.js';
-import { SpeechToTextService } from '../services/speech-to-text.js';
 import { chatInputStyles } from '../styles/chat-input.js';
+import { StreamingTranscribe } from '../components/streaming-transcribe.js';
 
 interface ChatMessage {
   type: 'user' | 'ai';
@@ -53,12 +54,17 @@ export class PageChat extends SignalWatcher(PageElement) {
   @state() private previewImage: string | null = null;
   @state() private previewDocumentName: string | null = null;
   @state() private isRecording = false;
-  @state() private isSpeechSupported = SpeechToTextService.isSupported();
+  @state() private isSpeechSupported = true;
+  @state() private isTranscribing = false;
+  @state() private currentTranscription = '';
+  @state() private isTyping = false;
+  @state() private currentPartial = '';
+  @state() private partialTranscriptions: string[] = [];
 
   private static readonly STORAGE_KEY = 'chat-history';
+  private _typingTimeout: NodeJS.Timeout | null = null;
   private documentClickHandler: (e: MouseEvent) => void;
   private documentInputRef = createRef<HTMLInputElement>();
-  private speechService = new SpeechToTextService();
 
   // Marked configuration without the 'mangle' property
   private marked = new Marked({
@@ -66,6 +72,9 @@ export class PageChat extends SignalWatcher(PageElement) {
     gfm: true,
     silent: true,
   });
+
+  @query('streaming-transcribe')
+  private transcribeElement!: StreamingTranscribe;
 
   constructor() {
     super();
@@ -504,49 +513,132 @@ export class PageChat extends SignalWatcher(PageElement) {
     }
   }
 
-  private async toggleRecording() {
-    try {
-      if (this.isRecording) {
-        this.isRecording = false;
+  private handleTranscriptionUpdate(event: CustomEvent) {
+    const { transcript, isFinal } = event.detail;
+    console.log(
+      '[PageChat] Received transcription update:',
+      transcript,
+      'isFinal:',
+      isFinal
+    );
 
-        // Show loading status
-        this.showError('Processing speech...');
+    const input = this.renderRoot?.querySelector(
+      '.chat-input'
+    ) as HTMLTextAreaElement;
+    const inputContainer = this.renderRoot?.querySelector(
+      '.chat-input-container'
+    );
 
-        try {
-          // Get the transcription from the speech service
-          const text = await this.speechService.stopRecording();
+    if (input && inputContainer) {
+      // Always update the input value and current transcription
+      input.value = transcript;
+      this.currentTranscription = transcript;
 
-          if (this.chatInput && text) {
-            // Set the transcribed text in the input box
-            this.chatInput.value = text;
-            this.chatInput.focus();
+      if (!isFinal) {
+        // Handle partial transcription
+        this.currentPartial = transcript;
+        inputContainer.classList.add('typing');
+        this.isTyping = true;
 
-            // Show success message
-            this.showSuccess();
-          } else if (!text) {
-            this.showError('No speech detected');
+        // Reset typing state after delay if no new updates
+        if (this._typingTimeout) {
+          clearTimeout(this._typingTimeout);
+        }
+        this._typingTimeout = setTimeout(() => {
+          if (this.currentPartial === transcript) {
+            inputContainer.classList.remove('typing');
+            this.isTyping = false;
           }
-        } catch (error) {
-          console.error('Error stopping recording:', error);
-          this.showError('Failed to process speech');
-        }
+        }, 1000);
       } else {
-        try {
-          // Start recording
-          await this.speechService.startRecording();
-          this.isRecording = true;
-
-          // Show recording status
-          this.showError('Recording... Speak now');
-        } catch (error) {
-          console.error('Error starting recording:', error);
-          this.showError('Failed to access microphone');
-        }
+        // Handle final transcription
+        console.log('[PageChat] Applying final transcription to input');
+        inputContainer.classList.remove('typing');
+        this.isTyping = false;
+        this.currentPartial = '';
       }
-    } catch (error) {
-      console.error('Error in toggleRecording:', error);
-      this.showError('An error occurred');
+
+      this.requestUpdate();
+    } else {
+      console.error(
+        '[PageChat] Input element not found for transcription update'
+      );
     }
+  }
+
+  private async toggleTranscription() {
+    console.log(
+      '[PageChat] Toggle transcription called, isRecording:',
+      this.isRecording
+    );
+    if (!this.transcribeElement) {
+      console.error('[PageChat] Transcribe element not found');
+      return;
+    }
+
+    if (!this.isRecording) {
+      try {
+        console.log('[PageChat] Starting recording...');
+        this.isRecording = true;
+        this.isTranscribing = true;
+        this.currentPartial = '';
+        this.partialTranscriptions = [];
+        await this.transcribeElement.startRecording();
+        console.log('[PageChat] Recording started successfully');
+      } catch (error) {
+        console.error('[PageChat] Error starting transcription:', error);
+
+        // Show user-friendly error message
+        if (error instanceof DOMException && error.name === 'NotAllowedError') {
+          this.showError(
+            'Microphone access denied. Please allow microphone access and try again.'
+          );
+        } else if (
+          error instanceof DOMException &&
+          error.name === 'NotFoundError'
+        ) {
+          this.showError(
+            'No microphone found. Please connect a microphone and try again.'
+          );
+        } else {
+          this.showError('Could not start recording. Please try again.');
+        }
+
+        this.isRecording = false;
+        this.isTranscribing = false;
+      }
+    } else {
+      try {
+        console.log('[PageChat] Stopping recording...');
+        await this.transcribeElement.stopRecording();
+        console.log('[PageChat] Recording stopped successfully');
+        this.isRecording = false;
+        this.isTranscribing = false;
+      } catch (error) {
+        console.error('[PageChat] Error stopping transcription:', error);
+        this.isRecording = false;
+        this.isTranscribing = false;
+      }
+    }
+  }
+
+  private handleMicrophoneClick() {
+    console.log(
+      'Microphone clicked, isSpeechSupported:',
+      this.isSpeechSupported
+    );
+    if (this.isSpeechSupported) {
+      console.log('Speech is supported, calling toggleTranscription');
+      this.toggleTranscription();
+    } else {
+      console.log('Speech is not supported');
+    }
+  }
+
+  private _handleInput(e: Event) {
+    const input = e.target as HTMLTextAreaElement;
+    this.currentTranscription = input.value;
+    this.requestUpdate();
   }
 
   render() {
@@ -699,7 +791,7 @@ export class PageChat extends SignalWatcher(PageElement) {
         </svg>
       </button>
 
-      <div class="chat-input-container">
+      <div class="chat-input-container ${this.isTyping ? 'typing' : ''}">
         <div class="chat-input-wrapper">
           ${this.previewImage || this.previewDocumentName
             ? html`
@@ -724,13 +816,11 @@ export class PageChat extends SignalWatcher(PageElement) {
                     </button>
                   </div>
                   ${this.previewImage
-                    ? html`
-                        <img
-                          class="preview-image"
-                          src="${this.previewImage}"
-                          alt="Preview"
-                        />
-                      `
+                    ? html`<img
+                        class="preview-image"
+                        src="${this.previewImage}"
+                        alt="Preview"
+                      />`
                     : html`
                         <div class="preview-document">
                           <svg viewBox="0 0 24 24" fill="currentColor">
@@ -747,30 +837,24 @@ export class PageChat extends SignalWatcher(PageElement) {
           ${this.isSpeechSupported
             ? html`
                 <button
-                  class="voice-input-button ${this.isRecording
-                    ? 'recording'
-                    : ''}"
-                  @click=${this.toggleRecording}
+                  class="audio ${this.isRecording ? 'recording' : ''}"
+                  @click=${this.handleMicrophoneClick}
                   title="${this.isRecording
                     ? 'Stop recording'
                     : 'Start voice input'}"
                 >
                   ${this.isRecording
-                    ? html`
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                          <rect x="6" y="6" width="12" height="12" />
-                        </svg>
-                      `
-                    : html`
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                          <path
-                            d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"
-                          />
-                          <path
-                            d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"
-                          />
-                        </svg>
-                      `}
+                    ? html`<svg viewBox="0 0 24 24" fill="currentColor">
+                        <rect x="6" y="6" width="12" height="12" />
+                      </svg>`
+                    : html`<svg viewBox="0 0 24 24" fill="currentColor">
+                        <path
+                          d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"
+                        />
+                        <path
+                          d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"
+                        />
+                      </svg>`}
                 </button>
               `
             : ''}
@@ -778,12 +862,8 @@ export class PageChat extends SignalWatcher(PageElement) {
             id="chat-input"
             class="chat-input"
             placeholder="Type your message here..."
-            @keydown=${(e: KeyboardEvent) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                this.handleSend();
-              }
-            }}
+            .value=${this.currentTranscription}
+            @input=${this._handleInput}
           ></textarea>
           <div class="button-group">
             <div style="position: relative;">
@@ -797,7 +877,6 @@ export class PageChat extends SignalWatcher(PageElement) {
                   />
                 </svg>
               </button>
-
               <div class="upload-menu ${this.showUploadMenu ? 'show' : ''}">
                 <button
                   class="upload-option"
@@ -823,7 +902,6 @@ export class PageChat extends SignalWatcher(PageElement) {
                 </button>
               </div>
             </div>
-
             <button class="send-button" @click=${this.handleSend}>
               <svg viewBox="0 0 24 24" fill="currentColor">
                 <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
@@ -849,6 +927,11 @@ export class PageChat extends SignalWatcher(PageElement) {
         accept=".pdf,.doc,.docx,.txt"
         @change=${this.handleDocumentUpload}
       />
+
+      <streaming-transcribe
+        hideUI
+        @transcription-update=${this.handleTranscriptionUpdate}
+      ></streaming-transcribe>
     `;
   }
 
@@ -939,13 +1022,7 @@ export class PageChat extends SignalWatcher(PageElement) {
   }
 
   disconnectedCallback(): void {
-    super.disconnectedCallback?.();
-
-    // Remove the viewport meta tag when component is disconnected
-    const meta = document.head.querySelector('meta[name="viewport"]');
-    if (meta) {
-      document.head.removeChild(meta);
-    }
+    super.disconnectedCallback();
 
     // Remove the click listener
     document.removeEventListener('click', this.documentClickHandler);
@@ -965,7 +1042,7 @@ export class PageChat extends SignalWatcher(PageElement) {
       display: block;
       min-height: 100vh;
       padding-bottom: calc(140px + env(safe-area-inset-bottom));
-      background: #f5f5f7;
+      background: #f8fafc;
       user-select: none;
       touch-action: pan-x pan-y;
       -webkit-touch-callout: none;
@@ -1534,6 +1611,143 @@ export class PageChat extends SignalWatcher(PageElement) {
       width: 20px;
       height: 20px;
       color: #64748b;
+    }
+
+    .chat-input-container {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 32px);
+      max-width: 600px;
+      display: flex;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 16px;
+      background: white;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      z-index: 1000;
+    }
+
+    .chat-input-wrapper {
+      display: flex;
+      flex: 1;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .chat-input {
+      flex: 1;
+      padding: 12px 16px;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      background: white;
+      color: #1e293b;
+      font-size: 16px;
+      transition: all 0.2s;
+      min-height: unset;
+      max-height: unset;
+      resize: none;
+    }
+
+    .chat-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      background: white;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    .chat-input::placeholder {
+      color: #94a3b8;
+    }
+
+    .audio {
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border: none;
+      border-radius: 10px;
+      background: #f0f0f0;
+      color: #64748b;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .audio:hover {
+      background: #e2e8f0;
+    }
+
+    .audio.recording {
+      background: #ef4444;
+      color: white;
+      animation: pulse 1.5s infinite;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .image-upload-button,
+    .send-button {
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .image-upload-button {
+      background: #f0f0f0;
+      color: #64748b;
+    }
+
+    .image-upload-button:hover {
+      background: #e2e8f0;
+    }
+
+    .send-button {
+      background: #2563eb;
+      color: white;
+    }
+
+    .send-button:hover {
+      background: #1d4ed8;
+      transform: translateY(-1px);
+    }
+
+    .image-upload-button svg,
+    .send-button svg,
+    .audio svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    @media (max-width: 640px) {
+      .chat-input-container {
+        bottom: 16px;
+        padding: 8px;
+      }
+
+      .chat-input {
+        padding: 10px 14px;
+      }
+
+      .audio,
+      .image-upload-button,
+      .send-button {
+        width: 36px;
+        height: 36px;
+      }
     }
   `;
 }

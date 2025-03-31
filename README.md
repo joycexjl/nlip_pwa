@@ -121,7 +121,7 @@ The application includes speech-to-text functionality that allows users to input
 
 The speech-to-text functionality is implemented using:
 
-1. **Client-side**: The `SpeechToTextService` class in `src/services/speech-to-text.ts` handles recording audio using the MediaRecorder API.
+1. **Client-side**: The `StreamingTranscribe` component in `src/components/streaming-transcribe.ts` handles recording audio using the MediaRecorder API and streaming it to the server using Server-Sent Events (SSE).
 2. **Server-side**: The transcription API endpoint in `server/src/api/transcribe.ts` processes the audio using Google Cloud Speech-to-Text API.
 
 ## License

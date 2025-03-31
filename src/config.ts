@@ -7,6 +7,8 @@
 
 export default {
   environment: 'development',
-  appName: 'MyApplication',
-  appDescription: 'MyApplication description',
+  appName: 'NLIP PWA',
+  appDescription: 'This is a frontend PWA for the NLIP project',
 };
+
+export const API_BASE_URL = 'http://localhost:3000';

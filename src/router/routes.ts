@@ -14,6 +14,7 @@ export const routes: Route[] = [
     component: 'page-home',
     action: async () => {
       await import('../pages/page-home.js');
+      await import('../components/streaming-transcribe.js');
     },
   },
   {
@@ -22,17 +23,27 @@ export const routes: Route[] = [
     component: 'page-chat',
     action: async () => {
       await import('../pages/page-chat.js');
+      await import('../components/streaming-transcribe.js');
     },
   },
   {
-    path: '/auth/callback',
-    name: 'auth-callback',
+    path: '/chat/:chatId',
+    name: 'chat-detail',
+    component: 'page-chat',
     action: async () => {
-      await import('../components/auth-callback.js');
-      // No need to render a component, the script will handle the redirect
-      return null;
+      await import('../pages/page-chat.js');
+      await import('../components/streaming-transcribe.js');
     },
   },
+  // Temporarily comment out the auth callback route
+  // {
+  //   path: '/auth/callback',
+  //   name: 'auth-callback',
+  //   component: 'auth-callback',
+  //   action: async () => {
+  //     await import('../components/auth-callback.js');
+  //   },
+  // },
   {
     path: '(.*)',
     name: 'not-found',

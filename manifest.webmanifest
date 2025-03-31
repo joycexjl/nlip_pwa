@@ -6,6 +6,9 @@
   "display": "standalone",
   "theme_color": "#000000",
   "background_color": "#ffffff",
+  "orientation": "portrait",
+  "categories": ["utilities"],
+  "display_override": ["standalone", "fullscreen", "minimal-ui"],
   "icons": [
     {
       "src": "images/manifest/icon-192x192.png",
@@ -29,5 +32,17 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ]
+  ],
+  "screenshots": [
+    {
+      "src": "images/screenshots/narrow.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "platform": "narrow",
+      "label": "iPhone Screenshot"
+    }
+  ],
+  "prefer_related_applications": false,
+  "scope": "/",
+  "shortcuts": []
 }

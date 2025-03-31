@@ -14,8 +14,8 @@ import { ref, createRef } from 'lit/directives/ref.js';
 
 import { handleFileUpload } from '../components/network.js';
 import { PageElement } from '../helpers/page-element.js';
-import { SpeechToTextService } from '../services/speech-to-text.js';
 import { chatInputStyles } from '../styles/chat-input.js';
+import { StreamingTranscribe } from '../components/streaming-transcribe.js';
 
 @customElement('page-home')
 export class PageHome extends SignalWatcher(PageElement) {
@@ -28,10 +28,52 @@ export class PageHome extends SignalWatcher(PageElement) {
   @state() private previewImage: string | null = null;
   @state() private previewDocumentName: string | null = null;
   @state() private isRecording = false;
-  @state() private isSpeechSupported = SpeechToTextService.isSupported();
+  @state() private isSpeechSupported = true;
+  @state() private isTranscribing = false;
+  @state() private currentTranscription = '';
+  @state() private isTyping = false;
+  @state() private currentPartial = '';
+  @state() private partialTranscriptions: string[] = [];
 
+  private _typingTimeout: NodeJS.Timeout | null = null;
   private documentInputRef = createRef<HTMLInputElement>();
-  private speechService = new SpeechToTextService();
+  private transcribeElementRef = createRef<StreamingTranscribe>();
+
+  constructor() {
+    super();
+  }
+
+  firstUpdated() {
+    super.firstUpdated();
+
+    // Check if speech recognition is supported
+    this.checkSpeechSupport();
+
+    // Log component status for debugging
+    setTimeout(() => {
+      const element = this.renderRoot.querySelector('streaming-transcribe');
+      console.log('[PageHome] First updated, element found:', !!element);
+      if (element) {
+        console.log(
+          '[PageHome] Element methods:',
+          Object.getOwnPropertyNames(Object.getPrototypeOf(element))
+        );
+      }
+    }, 100);
+  }
+
+  private checkSpeechSupport() {
+    // Check if browser supports MediaRecorder API
+    if (window.MediaRecorder) {
+      console.log('[PageHome] MediaRecorder API is supported');
+      this.isSpeechSupported = true;
+    } else {
+      console.warn(
+        '[PageHome] MediaRecorder API is not supported in this browser'
+      );
+      this.isSpeechSupported = false;
+    }
+  }
 
   static styles = css`
     ${chatInputStyles}
@@ -357,57 +399,485 @@ export class PageHome extends SignalWatcher(PageElement) {
       color: #64748b;
     }
 
-    .chat-input-wrapper {
-      position: relative;
+    .chat-input-container {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      z-index: 1000;
+      display: flex;
+      gap: 12px;
+      width: calc(100% - 32px);
+      max-width: 600px;
+      padding: 12px;
+      border-radius: 16px;
+      background: white;
+      box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
+      transform: translateX(-50%);
     }
 
-    .voice-input-button {
+    .chat-input-wrapper {
       display: flex;
-      flex-shrink: 0;
+      flex: 1;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .voice-input-button,
+    .image-upload-button,
+    .send-button {
+      display: flex;
       justify-content: center;
       align-items: center;
       width: 40px;
       height: 40px;
-      margin-right: 8px;
+      padding: 0;
       border: none;
-      border-radius: 50%;
-      background-color: #f1f5f9;
-      color: #1e293b;
+      border-radius: 10px;
       cursor: pointer;
       transition: all 0.2s;
     }
 
+    .voice-input-button {
+      background: #f0f0f0;
+      color: #666;
+    }
+
     .voice-input-button:hover {
-      background-color: #e2e8f0;
+      background: #e0e0e0;
     }
 
     .voice-input-button.recording {
-      background-color: #ef4444;
+      background: #ef4444;
       color: white;
       animation: pulse 1.5s infinite;
     }
 
+    @keyframes pulse {
+      0% {
+        transform: scale(1);
+      }
+      50% {
+        transform: scale(1.05);
+      }
+      100% {
+        transform: scale(1);
+      }
+    }
+
+    .chat-input {
+      flex: 1;
+      min-height: unset;
+      max-height: unset;
+      padding: 12px 16px;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      background: #f8fafc;
+      color: #1e293b;
+      font-size: 16px;
+      resize: none;
+      transition: all 0.2s;
+    }
+
+    .chat-input:focus {
+      border-color: #2563eb;
+      background: white;
+      box-shadow: 0 0 0 3px rgb(37 99 235 / 10%);
+      outline: none;
+    }
+
+    .chat-input::placeholder {
+      color: #94a3b8;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .image-upload-button {
+      background: #f0f0f0;
+      color: #666;
+    }
+
+    .image-upload-button:hover {
+      background: #e0e0e0;
+    }
+
+    .send-button {
+      background: #2563eb;
+      color: white;
+    }
+
+    .send-button:hover {
+      background: #1d4ed8;
+      transform: translateY(-1px);
+    }
+
+    .image-upload-button svg,
+    .send-button svg,
     .voice-input-button svg {
       width: 24px;
       height: 24px;
     }
 
+    @media (max-width: 640px) {
+      .chat-input-container {
+        bottom: 16px;
+        padding: 8px;
+      }
+
+      .chat-input {
+        padding: 10px 14px;
+      }
+
+      .voice-input-button,
+      .image-upload-button,
+      .send-button {
+        width: 36px;
+        height: 36px;
+      }
+    }
+
+    .transcription-preview {
+      position: absolute;
+      right: 0;
+      bottom: calc(100% + 8px);
+      left: 0;
+      overflow-y: auto;
+      max-height: 100px;
+      padding: 12px;
+      border-radius: 12px;
+      background: white;
+      color: #64748b;
+      box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
+      font-size: 14px;
+      opacity: 0;
+      transition: all 0.3s ease-in-out;
+      transform: translateY(10px);
+    }
+
+    .transcription-preview.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .transcription-preview.typing {
+      border-left: 3px solid #2563eb;
+      background-color: #f8f9fa;
+      font-style: italic;
+    }
+
+    .transcription-preview.typing::after {
+      content: '';
+      position: absolute;
+      right: 1rem;
+      bottom: 1rem;
+      width: 2px;
+      height: 1.2em;
+      background-color: #2563eb;
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink {
+      50% {
+        opacity: 0;
+      }
+    }
+
+    .input-container {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    textarea {
+      flex-grow: 1;
+      overflow: hidden;
+      min-height: 40px;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: inherit;
+      font-family: inherit;
+      resize: none;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      background-color: #4285f4;
+      color: white;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    button:hover {
+      background-color: #3367d6;
+    }
+
+    button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+
+    button.recording {
+      background-color: #ea4335;
+      animation: pulse 1.5s infinite;
+    }
+
     @keyframes pulse {
       0% {
-        box-shadow: 0 0 0 0 rgb(239 68 68 / 40%);
+        opacity: 1;
       }
-      70% {
-        box-shadow: 0 0 0 10px rgb(239 68 68 / 0%);
+      50% {
+        opacity: 0.7;
       }
       100% {
-        box-shadow: 0 0 0 0 rgb(239 68 68 / 0%);
+        opacity: 1;
+      }
+    }
+
+    .partials-display {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      width: calc(100% - 32px);
+      max-width: 600px;
+      padding: 16px;
+      border-radius: 12px;
+      background: white;
+      box-shadow: 0 4px 12px rgb(0 0 0 / 10%);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      transform: translateX(-50%);
+    }
+
+    .partials-display.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .partials-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .partials-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .partial-item {
+      padding: 8px;
+      border-radius: 4px;
+      background: #f8fafc;
+      color: #1e293b;
+    }
+
+    .typing-indicator-small {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #2563eb;
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink {
+      50% {
+        opacity: 0;
       }
     }
   `;
 
+  private handleTranscriptionUpdate(event: CustomEvent) {
+    const { transcript, isFinal } = event.detail;
+    console.log(
+      '[PageHome] Received transcription update:',
+      transcript,
+      'isFinal:',
+      isFinal
+    );
+
+    const input = this.renderRoot?.querySelector(
+      '.chat-input'
+    ) as HTMLTextAreaElement;
+    const inputContainer = this.renderRoot?.querySelector(
+      '.chat-input-container'
+    );
+
+    if (input && inputContainer) {
+      // Always update the input value and current transcription
+      input.value = transcript;
+      this.currentTranscription = transcript;
+
+      if (!isFinal) {
+        // Handle partial transcription
+        this.currentPartial = transcript;
+        inputContainer.classList.add('typing');
+        this.isTyping = true;
+
+        // Reset typing state after delay if no new updates
+        if (this._typingTimeout) {
+          clearTimeout(this._typingTimeout);
+        }
+        this._typingTimeout = setTimeout(() => {
+          if (this.currentPartial === transcript) {
+            inputContainer.classList.remove('typing');
+            this.isTyping = false;
+          }
+        }, 1000);
+      } else {
+        // Handle final transcription
+        console.log('[PageHome] Applying final transcription to input');
+        inputContainer.classList.remove('typing');
+        this.isTyping = false;
+        this.currentPartial = '';
+      }
+
+      this.requestUpdate();
+    } else {
+      console.error(
+        '[PageHome] Input element not found for transcription update'
+      );
+    }
+  }
+
+  private async toggleTranscription() {
+    console.log(
+      '[PageHome] Toggle transcription called, isRecording:',
+      this.isRecording
+    );
+
+    // Directly query the element instead of using the ref
+    const element = this.renderRoot.querySelector(
+      'streaming-transcribe'
+    ) as any;
+
+    if (!element) {
+      console.error('[PageHome] Transcribe element not found in DOM');
+      this.showStatus('Audio recording component not found', 'error');
+      return;
+    }
+
+    console.log('[PageHome] Found element:', element);
+    console.log(
+      '[PageHome] Element methods:',
+      Object.getOwnPropertyNames(Object.getPrototypeOf(element))
+    );
+
+    try {
+      if (!this.isRecording) {
+        console.log('[PageHome] Starting recording...');
+        this.currentPartial = '';
+        this.partialTranscriptions = [];
+
+        if (typeof element.startRecording === 'function') {
+          await element.startRecording();
+          this.isRecording = true;
+          console.log('[PageHome] Recording started successfully');
+        } else {
+          console.error(
+            '[PageHome] startRecording is not a function on the element'
+          );
+          this.showStatus(
+            'Audio recording functionality not available',
+            'error'
+          );
+          return;
+        }
+      } else {
+        console.log('[PageHome] Stopping recording...');
+
+        if (typeof element.stopRecording === 'function') {
+          await element.stopRecording();
+          this.isRecording = false;
+          console.log('[PageHome] Recording stopped successfully');
+        } else {
+          console.error(
+            '[PageHome] stopRecording is not a function on the element'
+          );
+          this.showStatus(
+            'Audio recording functionality not available',
+            'error'
+          );
+          return;
+        }
+      }
+    } catch (error) {
+      console.error('[PageHome] Error toggling transcription:', error);
+
+      // Show user-friendly error message
+      if (error instanceof DOMException && error.name === 'NotAllowedError') {
+        this.showStatus(
+          'Microphone access denied. Please allow microphone access and try again.',
+          'error'
+        );
+      } else if (
+        error instanceof DOMException &&
+        error.name === 'NotFoundError'
+      ) {
+        this.showStatus(
+          'No microphone found. Please connect a microphone and try again.',
+          'error'
+        );
+      } else {
+        this.showStatus(
+          'Could not start recording. Please try again.',
+          'error'
+        );
+      }
+
+      this.isRecording = false;
+    }
+  }
+
+  private handleMicrophoneClick() {
+    console.log(
+      'Microphone clicked, isSpeechSupported:',
+      this.isSpeechSupported
+    );
+    if (this.isSpeechSupported) {
+      this.toggleTranscription();
+    }
+  }
+
+  private _handleInput(e: Event) {
+    const input = e.target as HTMLTextAreaElement;
+    this.currentTranscription = input.value;
+    this.requestUpdate();
+  }
+
   render() {
     return html`
       <div class="container">
+        ${this.isRecording
+          ? html`
+              <div
+                class="partials-display ${this.partialTranscriptions.length > 0
+                  ? 'show'
+                  : ''}"
+              >
+                <div class="partials-header">
+                  <span>Live Transcription</span>
+                  ${this.isTyping
+                    ? html`<div class="typing-indicator-small"></div>`
+                    : ''}
+                </div>
+                <div class="partials-list">
+                  ${this.partialTranscriptions.map(
+                    (text) => html` <div class="partial-item">${text}</div> `
+                  )}
+                </div>
+              </div>
+            `
+          : ''}
+
         <div class="header">
           <div class="logo">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">
@@ -528,7 +998,7 @@ export class PageHome extends SignalWatcher(PageElement) {
         </div>
       </div>
 
-      <div class="chat-input-container">
+      <div class="chat-input-container ${this.isTyping ? 'typing' : ''}">
         <div class="chat-input-wrapper">
           ${this.previewImage || this.previewDocumentName
             ? html`
@@ -573,37 +1043,37 @@ export class PageHome extends SignalWatcher(PageElement) {
                 </div>
               `
             : ''}
-          ${this.isSpeechSupported ? html`
-            <button
-              class="voice-input-button ${this.isRecording ? 'recording' : ''}"
-              @click=${this.toggleRecording}
-              title="${this.isRecording ? 'Stop recording' : 'Start voice input'}"
-            >
-              ${this.isRecording
-                ? html`
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <rect x="6" y="6" width="12" height="12" />
-                    </svg>
-                  `
-                : html`
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                      <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-                    </svg>
-                  `
-              }
-            </button>
-          ` : ''}
+          ${this.isSpeechSupported
+            ? html`
+                <button
+                  class="voice-input-button ${this.isRecording
+                    ? 'recording'
+                    : ''}"
+                  @click=${this.handleMicrophoneClick}
+                  title="${this.isRecording
+                    ? 'Stop recording'
+                    : 'Start voice input'}"
+                >
+                  ${this.isRecording
+                    ? html`<svg viewBox="0 0 24 24" fill="currentColor">
+                        <rect x="6" y="6" width="12" height="12" />
+                      </svg>`
+                    : html`<svg viewBox="0 0 24 24" fill="currentColor">
+                        <path
+                          d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"
+                        />
+                        <path
+                          d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"
+                        />
+                      </svg>`}
+                </button>
+              `
+            : ''}
           <textarea
             class="chat-input"
             placeholder="Type your message here..."
-            @keydown=${(e: KeyboardEvent) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                const input = e.target as HTMLTextAreaElement;
-                this.navigateToChat(input.value);
-              }
-            }}
+            .value=${this.currentTranscription}
+            @input=${this._handleInput}
           ></textarea>
           <div class="button-group">
             <div style="position: relative;">
@@ -650,7 +1120,7 @@ export class PageHome extends SignalWatcher(PageElement) {
                 const input = this.renderRoot?.querySelector(
                   '.chat-input'
                 ) as HTMLTextAreaElement;
-                if (input?.value) {
+                if (input?.value.trim()) {
                   this.navigateToChat(input.value);
                 }
               }}
@@ -687,6 +1157,13 @@ export class PageHome extends SignalWatcher(PageElement) {
             </div>
           `
         : ''}
+
+      <streaming-transcribe
+        id="transcribe-component"
+        ${ref(this.transcribeElementRef)}
+        .hideUI=${true}
+        @transcription-update=${this.handleTranscriptionUpdate}
+      ></streaming-transcribe>
     `;
   }
 
@@ -901,54 +1378,6 @@ export class PageHome extends SignalWatcher(PageElement) {
     sessionStorage.removeItem('pendingImageData');
     sessionStorage.removeItem('pendingDocumentData');
     sessionStorage.removeItem('pendingDocumentContent');
-  }
-
-  private async toggleRecording() {
-    try {
-      if (this.isRecording) {
-        this.isRecording = false;
-        
-        // Show loading status
-        this.showStatus('Processing speech...', 'loading');
-        
-        try {
-          // Get the transcription from the speech service
-          const text = await this.speechService.stopRecording();
-          
-          // Get the chat input element
-          const chatInput = this.renderRoot?.querySelector('.chat-input') as HTMLTextAreaElement;
-          
-          if (chatInput && text) {
-            // Set the transcribed text in the input box
-            chatInput.value = text;
-            chatInput.focus();
-            
-            // Show success message
-            this.showStatus('Speech transcribed successfully', 'success');
-          } else if (!text) {
-            this.showStatus('No speech detected', 'error');
-          }
-        } catch (error) {
-          console.error('Error stopping recording:', error);
-          this.showStatus('Failed to process speech', 'error');
-        }
-      } else {
-        try {
-          // Start recording
-          await this.speechService.startRecording();
-          this.isRecording = true;
-          
-          // Show recording status
-          this.showStatus('Recording... Speak now', 'loading');
-        } catch (error) {
-          console.error('Error starting recording:', error);
-          this.showStatus('Failed to access microphone', 'error');
-        }
-      }
-    } catch (error) {
-      console.error('Error in toggleRecording:', error);
-      this.showStatus('An error occurred', 'error');
-    }
   }
 
   meta() {
