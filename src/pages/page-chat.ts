@@ -1101,11 +1101,32 @@ export class PageChat extends SignalWatcher(PageElement) {
     // Add click listener with proper reference
     document.addEventListener('click', this.documentClickHandler);
 
-    // Check for chatData from home page
-    const chatDataString = sessionStorage.getItem('chatData');
-    if (chatDataString) {
+    // Check for chat data from sessionStorage
+    const chatDataStr = sessionStorage.getItem('chatData');
+    if (chatDataStr) {
       try {
-        const chatData = JSON.parse(chatDataString);
+        const chatData = JSON.parse(chatDataStr);
+
+        // If we should create a new chat (coming from homepage)
+        if (chatData.shouldCreateNewChat) {
+          // Create a new chat session
+          const newSession: ChatSession = {
+            id: this.generateMessageId(),
+            title:
+              chatData.userPrompt.length > 30
+                ? chatData.userPrompt.substring(0, 30) + '...'
+                : chatData.userPrompt,
+            messages: [],
+            createdAt: Date.now(),
+            lastUpdated: Date.now(),
+          };
+
+          // Add the new session to the beginning of the list
+          this.chatSessions = [newSession, ...this.chatSessions];
+          this.currentSessionId = newSession.id;
+          this.messages = [];
+          this.saveChatSessions();
+        }
 
         // Wait for the chat input to be available
         requestAnimationFrame(() => {

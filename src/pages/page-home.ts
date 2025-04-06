@@ -1167,40 +1167,36 @@ export class PageHome extends SignalWatcher(PageElement) {
     `;
   }
 
-  private navigateToChat(prompt?: string) {
-    if (!prompt) return;
-
-    const pendingImageData = sessionStorage.getItem('pendingImageData');
-    const pendingDocumentData = sessionStorage.getItem('pendingDocumentData');
-    const pendingDocumentContent = sessionStorage.getItem(
-      'pendingDocumentContent'
-    );
-
-    let chatData: any = {
-      userPrompt: prompt,
+  private navigateToChat(text: string) {
+    // Store the chat data in sessionStorage
+    const chatData = {
+      userPrompt: text,
+      imageData: this.previewImage,
+      imageType: this.previewImage ? 'image/jpeg' : undefined,
+      documentName: this.previewDocumentName,
+      documentType: this.previewDocumentName ? 'application/pdf' : undefined,
+      documentContent: this.previewDocumentName
+        ? sessionStorage.getItem('pendingDocumentContent')
+        : undefined,
+      shouldCreateNewChat: true, // Flag to indicate we should create a new chat
     };
 
-    if (pendingImageData) {
-      const imageData = JSON.parse(pendingImageData);
-      chatData = {
-        ...chatData,
-        imageData: imageData.data,
-        imageType: imageData.type,
-      };
-      sessionStorage.removeItem('pendingImageData');
-    } else if (pendingDocumentData && pendingDocumentContent) {
-      const documentData = JSON.parse(pendingDocumentData);
-      chatData = {
-        ...chatData,
-        documentName: documentData.name,
-        documentType: documentData.type,
-        documentContent: pendingDocumentContent,
-      };
-      sessionStorage.removeItem('pendingDocumentData');
-      sessionStorage.removeItem('pendingDocumentContent');
-    }
-
     sessionStorage.setItem('chatData', JSON.stringify(chatData));
+
+    // Clear the current input and previews
+    const input = this.renderRoot?.querySelector(
+      '.chat-input'
+    ) as HTMLTextAreaElement;
+    if (input) {
+      input.value = '';
+    }
+    this.previewImage = null;
+    this.previewDocumentName = null;
+    sessionStorage.removeItem('pendingImageData');
+    sessionStorage.removeItem('pendingDocumentData');
+    sessionStorage.removeItem('pendingDocumentContent');
+
+    // Navigate to chat page
     Router.go('/chat');
   }
 
