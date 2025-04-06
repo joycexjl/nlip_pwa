@@ -46,8 +46,6 @@ export class PageChat extends SignalWatcher(PageElement) {
   @state() private messages: ChatMessage[] = [];
   @state() private chatSessions: ChatSession[] = [];
   @state() private currentSessionId: string | null = null;
-  @state() private showNewChatModal = false;
-  @state() private newChatTitle = '';
   @state() private showChatList = false;
   @query('#chat-input') chatInput?: HTMLTextAreaElement;
   @query('#image-input') imageInput?: HTMLInputElement;
