@@ -2,17 +2,40 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
-import {
-  createStreamConnection,
-  sendAudioData,
-  startStream,
-  stopStream,
-} from '../helpers/stream-client.js';
-
-interface Transcript {
-  transcript: string;
-  isFinal: boolean;
-  edited?: boolean;
+interface OVONEnvelope {
+  ovon: {
+    schema: {
+      version: string;
+    };
+    conversation: {
+      id: string;
+    };
+    sender: {
+      speakerUri: string;
+      serviceUrl: string;
+    };
+    events: Array<{
+      eventType: string;
+      parameters?: {
+        dialogEvent?: {
+          speakerUri: string;
+          span: {
+            startTime: string;
+          };
+          features: {
+            text?: {
+              mimeType: string;
+              tokens: Array<{ value: string }>;
+            };
+            audio?: {
+              mimeType: string;
+              tokens: Array<{ value: string }>;
+            };
+          };
+        };
+      };
+    }>;
+  };
 }
 
 @customElement('streaming-transcribe')
@@ -24,7 +47,6 @@ export class StreamingTranscribe extends LitElement {
   @state() private isFinal = false;
 
   private mediaRecorder: MediaRecorder | null = null;
-  private audioChunks: Blob[] = [];
   private stream: MediaStream | null = null;
   private eventSource: EventSource | null = null;
   private sessionId: string | null = null;
@@ -34,11 +56,38 @@ export class StreamingTranscribe extends LitElement {
     this.sessionId = Math.random().toString(36).substring(7);
   }
 
+  private createOVONEnvelope(eventType: string, content: any): OVONEnvelope {
+    return {
+      ovon: {
+        schema: { version: '0.9.4' },
+        conversation: { id: this.sessionId! },
+        sender: {
+          speakerUri: 'tag:nlip-client,2025:0001',
+          serviceUrl: 'http://localhost:8000',
+        },
+        events: [
+          {
+            eventType,
+            parameters: {
+              dialogEvent: {
+                speakerUri: 'tag:nlip-client,2025:0001',
+                span: { startTime: new Date().toISOString() },
+                features: content,
+              },
+            },
+          },
+        ],
+      },
+    };
+  }
+
   async startRecording() {
     try {
       // Set up SSE connection first
-      this.eventSource = createStreamConnection(this.sessionId!);
-      
+      this.eventSource = new EventSource(
+        `http://localhost:3000/stream/${this.sessionId}`
+      );
+
       // Wait for connection to be established
       await new Promise((resolve, reject) => {
         const connectionTimeout = setTimeout(() => {
@@ -55,23 +104,41 @@ export class StreamingTranscribe extends LitElement {
           reject(new Error('Failed to establish SSE connection'));
         });
 
-        this.eventSource!.addEventListener('transcriptionData', (event) => {
-          const data = JSON.parse(event.data);
-          this.currentTranscript = data.transcript;
-          this.isFinal = data.isFinal;
-          this.dispatchEvent(new CustomEvent('transcription-update', {
-            detail: { transcript: this.currentTranscript, isFinal: this.isFinal }
-          }));
-        });
+        this.eventSource!.addEventListener('message', (event) => {
+          const envelope: OVONEnvelope = JSON.parse(event.data);
+          const transcriptionEvent = envelope.ovon.events[0];
 
-        this.eventSource!.addEventListener('streamError', (event) => {
-          console.error('Stream error:', event.data);
-          this.stopRecording();
+          if (transcriptionEvent?.parameters?.dialogEvent?.features?.text) {
+            const transcript =
+              transcriptionEvent.parameters.dialogEvent.features.text.tokens[0]
+                .value;
+            this.currentTranscript = transcript;
+            this.isFinal = true; // You might want to modify this based on your needs
+            this.dispatchEvent(
+              new CustomEvent('transcription-update', {
+                detail: {
+                  transcript: this.currentTranscript,
+                  isFinal: this.isFinal,
+                },
+              })
+            );
+          }
         });
       });
 
       // Start the stream on the server
-      await startStream(this.sessionId!);
+      const startEnvelope = this.createOVONEnvelope('utterance', {
+        text: {
+          mimeType: 'text/plain',
+          tokens: [{ value: 'Start transcription' }],
+        },
+      });
+
+      await fetch(`http://localhost:3000/start/${this.sessionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(startEnvelope),
+      });
 
       // Set up audio recording
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -81,15 +148,31 @@ export class StreamingTranscribe extends LitElement {
 
       this.mediaRecorder.ondataavailable = async (event) => {
         if (event.data.size > 0) {
-          this.audioChunks.push(event.data);
-          await this.sendAudioChunk(event.data);
+          const reader = new FileReader();
+          reader.onload = async () => {
+            const base64Audio = reader.result?.toString().split(',')[1];
+            if (base64Audio) {
+              const audioEnvelope = this.createOVONEnvelope('utterance', {
+                audio: {
+                  mimeType: 'audio/webm;codecs=opus',
+                  tokens: [{ value: base64Audio }],
+                },
+              });
+
+              await fetch(`http://localhost:3000/audio/${this.sessionId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(audioEnvelope),
+              });
+            }
+          };
+          reader.readAsDataURL(event.data);
         }
       };
 
       this.mediaRecorder.start(100); // Send chunks every 100ms
       this.isRecording = true;
       this.isTranscribing = true;
-
     } catch (error) {
       console.error('Error starting recording:', error);
       if (this.eventSource) {
@@ -103,29 +186,29 @@ export class StreamingTranscribe extends LitElement {
   async stopRecording() {
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       this.mediaRecorder.stop();
-      this.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+      this.mediaRecorder.stream.getTracks().forEach((track) => track.stop());
       this.isRecording = false;
       this.isTranscribing = false;
 
       // Stop the stream on the server
-      await stopStream(this.sessionId!);
+      const stopEnvelope = this.createOVONEnvelope('utterance', {
+        text: {
+          mimeType: 'text/plain',
+          tokens: [{ value: 'Stop transcription' }],
+        },
+      });
+
+      await fetch(`http://localhost:3000/stop/${this.sessionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(stopEnvelope),
+      });
 
       // Close SSE connection
       if (this.eventSource) {
         this.eventSource.close();
         this.eventSource = null;
       }
-
-      // Clear audio chunks
-      this.audioChunks = [];
-    }
-  }
-
-  private async sendAudioChunk(chunk: Blob) {
-    try {
-      await sendAudioData(this.sessionId!, chunk, 'audio/webm;codecs=opus');
-    } catch (error) {
-      console.error('Error sending audio chunk:', error);
     }
   }
 
@@ -142,11 +225,13 @@ export class StreamingTranscribe extends LitElement {
         >
           ${this.isRecording ? 'Stop Recording' : 'Start Recording'}
         </button>
-        ${this.isTranscribing ? html`
-          <div class="transcription ${this.isFinal ? 'final' : ''}">
-            ${this.currentTranscript || 'Listening...'}
-          </div>
-        ` : ''}
+        ${this.isTranscribing
+          ? html`
+              <div class="transcription ${this.isFinal ? 'final' : ''}">
+                ${this.currentTranscript || 'Listening...'}
+              </div>
+            `
+          : ''}
       </div>
     `;
   }
