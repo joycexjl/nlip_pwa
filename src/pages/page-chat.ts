@@ -7,7 +7,6 @@
 
 /* stylelint-disable */
 import { SignalWatcher } from '@lit-labs/signals';
-import { Router } from '@vaadin/router';
 import { html, css } from 'lit';
 import { customElement, query, state } from 'lit/decorators.js';
 import { ref, createRef } from 'lit/directives/ref.js';
@@ -119,21 +118,29 @@ export class PageChat extends SignalWatcher(PageElement) {
   }
 
   private loadChatSessions() {
+    console.log('Loading chat sessions from localStorage...');
     const savedSessions = localStorage.getItem(PageChat.STORAGE_KEY);
+    console.log('Retrieved from localStorage:', savedSessions);
     if (savedSessions) {
       this.chatSessions = JSON.parse(savedSessions);
+      console.log('Parsed chat sessions:', this.chatSessions);
       if (this.chatSessions.length > 0) {
         this.currentSessionId = this.chatSessions[0].id;
         this.messages = this.chatSessions[0].messages;
+        console.log('Set current session:', this.currentSessionId);
+        console.log('Current session messages:', this.messages);
       }
     }
   }
 
   private saveChatSessions() {
+    console.log('Saving chat sessions to localStorage...');
+    console.log('Current sessions to save:', this.chatSessions);
     localStorage.setItem(
       PageChat.STORAGE_KEY,
       JSON.stringify(this.chatSessions)
     );
+    console.log('Saved to localStorage with key:', PageChat.STORAGE_KEY);
   }
 
   private createNewChatSession() {
@@ -202,6 +209,7 @@ export class PageChat extends SignalWatcher(PageElement) {
   }
 
   private updateCurrentSession() {
+    console.log('Updating current session...');
     if (this.currentSessionId) {
       const sessionIndex = this.chatSessions.findIndex(
         (s) => s.id === this.currentSessionId
@@ -209,8 +217,13 @@ export class PageChat extends SignalWatcher(PageElement) {
       if (sessionIndex !== -1) {
         this.chatSessions[sessionIndex].messages = this.messages;
         this.chatSessions[sessionIndex].lastUpdated = Date.now();
+        console.log('Updated session:', this.chatSessions[sessionIndex]);
         this.saveChatSessions();
+      } else {
+        console.log('Current session ID not found in sessions array');
       }
+    } else {
+      console.log('No current session ID set');
     }
   }
 
@@ -223,6 +236,7 @@ export class PageChat extends SignalWatcher(PageElement) {
     content: string,
     image?: { data: string; type: string } | null
   ) {
+    console.log('Adding new message:', { type, content, image });
     const message: ChatMessage = {
       type,
       content,
@@ -231,6 +245,7 @@ export class PageChat extends SignalWatcher(PageElement) {
       ...(image && { image }),
     };
     this.messages = [...this.messages, message];
+    console.log('Updated messages:', this.messages);
     this.updateCurrentSession();
     this.scrollToBottom();
   }
@@ -301,6 +316,12 @@ export class PageChat extends SignalWatcher(PageElement) {
         };
         sessionStorage.removeItem('pendingDocumentData');
         sessionStorage.removeItem('pendingDocumentContent');
+      }
+
+      // Create a new session if none exists
+      if (!this.currentSessionId) {
+        console.log('No current session, creating new one...');
+        this.createNewChatSession();
       }
 
       // Add user message to chat
