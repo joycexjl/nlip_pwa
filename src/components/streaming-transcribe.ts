@@ -2,6 +2,27 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
+interface OVONManifest {
+  identification: {
+    speakerUri: string;
+    serviceUrl: string;
+    organization: string;
+    conversationalName: string;
+    synopsis: string;
+    department: string;
+    role: string;
+  };
+  capabilities: {
+    keyphrases: string[];
+    languages: string[];
+    descriptions: string[];
+    supportedLayers: {
+      input: string[];
+      output: string[];
+    };
+  };
+}
+
 interface OVONEnvelope {
   ovon: {
     schema: {
@@ -45,6 +66,8 @@ export class StreamingTranscribe extends LitElement {
   @state() private isTranscribing = false;
   @state() private currentTranscript = '';
   @state() private isFinal = false;
+  @state() private manifest: OVONManifest | null = null;
+  @state() private error: string | null = null;
 
   private mediaRecorder: MediaRecorder | null = null;
   private stream: MediaStream | null = null;
@@ -54,23 +77,41 @@ export class StreamingTranscribe extends LitElement {
   constructor() {
     super();
     this.sessionId = Math.random().toString(36).substring(7);
+    this.initializeManifest();
+  }
+
+  private async initializeManifest() {
+    try {
+      const response = await fetch('http://localhost:3000/manifest');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch manifest: ${response.status}`);
+      }
+      this.manifest = await response.json();
+    } catch (error) {
+      console.error('Error fetching manifest:', error);
+      this.error = 'Failed to initialize transcription service';
+    }
   }
 
   private createOVONEnvelope(eventType: string, content: any): OVONEnvelope {
+    if (!this.manifest) {
+      throw new Error('Manifest not initialized');
+    }
+
     return {
       ovon: {
         schema: { version: '0.9.4' },
         conversation: { id: this.sessionId! },
         sender: {
-          speakerUri: 'tag:nlip-client,2025:0001',
-          serviceUrl: 'http://localhost:8000',
+          speakerUri: this.manifest.identification.speakerUri,
+          serviceUrl: this.manifest.identification.serviceUrl,
         },
         events: [
           {
             eventType,
             parameters: {
               dialogEvent: {
-                speakerUri: 'tag:nlip-client,2025:0001',
+                speakerUri: this.manifest.identification.speakerUri,
                 span: { startTime: new Date().toISOString() },
                 features: content,
               },
@@ -82,10 +123,15 @@ export class StreamingTranscribe extends LitElement {
   }
 
   async startRecording() {
+    if (!this.manifest) {
+      this.error = 'Transcription service not initialized';
+      return;
+    }
+
     try {
       // Set up SSE connection first
       this.eventSource = new EventSource(
-        `http://localhost:3000/stream/${this.sessionId}`
+        `${this.manifest.identification.serviceUrl}/stream/${this.sessionId}`
       );
 
       // Wait for connection to be established
@@ -113,7 +159,7 @@ export class StreamingTranscribe extends LitElement {
               transcriptionEvent.parameters.dialogEvent.features.text.tokens[0]
                 .value;
             this.currentTranscript = transcript;
-            this.isFinal = true; // You might want to modify this based on your needs
+            this.isFinal = true;
             this.dispatchEvent(
               new CustomEvent('transcription-update', {
                 detail: {
@@ -134,16 +180,19 @@ export class StreamingTranscribe extends LitElement {
         },
       });
 
-      await fetch(`http://localhost:3000/start/${this.sessionId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(startEnvelope),
-      });
+      await fetch(
+        `${this.manifest.identification.serviceUrl}/start/${this.sessionId}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(startEnvelope),
+        }
+      );
 
       // Set up audio recording
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       this.mediaRecorder = new MediaRecorder(this.stream, {
-        mimeType: 'audio/webm;codecs=opus',
+        mimeType: this.manifest.capabilities.supportedLayers.input[0],
       });
 
       this.mediaRecorder.ondataavailable = async (event) => {
@@ -154,16 +203,22 @@ export class StreamingTranscribe extends LitElement {
             if (base64Audio) {
               const audioEnvelope = this.createOVONEnvelope('utterance', {
                 audio: {
-                  mimeType: 'audio/webm;codecs=opus',
+                  mimeType:
+                    this.manifest!.capabilities.supportedLayers.input[0],
                   tokens: [{ value: base64Audio }],
                 },
               });
 
-              await fetch(`http://localhost:3000/audio/${this.sessionId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(audioEnvelope),
-              });
+              await fetch(
+                `${this.manifest!.identification.serviceUrl}/audio/${
+                  this.sessionId
+                }`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(audioEnvelope),
+                }
+              );
             }
           };
           reader.readAsDataURL(event.data);
@@ -175,15 +230,21 @@ export class StreamingTranscribe extends LitElement {
       this.isTranscribing = true;
     } catch (error) {
       console.error('Error starting recording:', error);
+      this.error =
+        error instanceof Error ? error.message : 'Failed to start recording';
       if (this.eventSource) {
         this.eventSource.close();
         this.eventSource = null;
       }
-      throw error;
     }
   }
 
   async stopRecording() {
+    if (!this.manifest) {
+      this.error = 'Transcription service not initialized';
+      return;
+    }
+
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       this.mediaRecorder.stop();
       this.mediaRecorder.stream.getTracks().forEach((track) => track.stop());
@@ -198,11 +259,14 @@ export class StreamingTranscribe extends LitElement {
         },
       });
 
-      await fetch(`http://localhost:3000/stop/${this.sessionId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(stopEnvelope),
-      });
+      await fetch(
+        `${this.manifest.identification.serviceUrl}/stop/${this.sessionId}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(stopEnvelope),
+        }
+      );
 
       // Close SSE connection
       if (this.eventSource) {
@@ -217,11 +281,16 @@ export class StreamingTranscribe extends LitElement {
       return html``;
     }
 
+    if (this.error) {
+      return html` <div class="error">${this.error}</div> `;
+    }
+
     return html`
       <div class="container">
         <button
           class="record-button ${this.isRecording ? 'recording' : ''}"
           @click=${this.isRecording ? this.stopRecording : this.startRecording}
+          ?disabled=${!this.manifest}
         >
           ${this.isRecording ? 'Stop Recording' : 'Start Recording'}
         </button>
@@ -258,6 +327,11 @@ export class StreamingTranscribe extends LitElement {
       background-color: #0056b3;
     }
 
+    .record-button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+
     .record-button.recording {
       background-color: #dc3545;
       animation: pulse 1.5s infinite;
@@ -272,6 +346,13 @@ export class StreamingTranscribe extends LitElement {
 
     .transcription.final {
       background-color: #e9ecef;
+    }
+
+    .error {
+      padding: 1rem;
+      border-radius: 4px;
+      background-color: #f8d7da;
+      color: #dc3545;
     }
 
     @keyframes pulse {
